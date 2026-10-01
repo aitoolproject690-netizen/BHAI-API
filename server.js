@@ -114,7 +114,7 @@ async function genericProviderPost(url,key,body,extraHeaders={}){
   if(!r.ok){const e=new Error(d?.error?.message||d?.message||("Provider HTTP "+r.status));e.code="provider_error";e.status=r.status;throw e}
   return d;
 }
-function providerFailedStatus(status){return [401,402,403,408,409,425,429,500,502,503,504].includes(Number(status))}
+function providerFailedStatus(status){return [400,401,402,403,408,409,425,429,500,502,503,504].includes(Number(status))}
 function providerList(kind){
   const isImage=kind==="image";
   const urls=isImage?IMAGE_PROVIDER_URLS:VIDEO_PROVIDER_URLS;
@@ -141,24 +141,29 @@ app.post("/v1/image",authenticate,requireScope("image"),async(req,res,next)=>{tr
   const size=String(req.body?.size||"1024x1024");
   const external=[];
   if(process.env.IMAGE_API_URL)external.push({url:process.env.IMAGE_API_URL,key:process.env.IMAGE_API_KEY||"",name:"configured_image_provider"});
-  if(process.env.PIXAZO_API_KEY)external.push({url:"https://gateway.pixazo.ai/flux/text-to-image",key:process.env.PIXAZO_API_KEY,name:"pixazo_flux_schnell",pixazo:true});
+  if(process.env.PIXAZO_API_KEY)external.push({url:"https://gateway.pixazo.ai/flux/text-to-image",key:"",pixazo_key:process.env.PIXAZO_API_KEY,name:"pixazo_flux_schnell",pixazo:true});
   external.push(...providerList("image"));
   let lastError=null;
+  const attempts=[];
   for(const p of external){
     try{
       const body=p.pixazo?{prompt}:{prompt,model:String(req.body?.model||process.env.IMAGE_MODEL||"image"),size};
-      const headers=p.pixazo?{"Ocp-Apim-Subscription-Key":p.key,"Cache-Control":"no-cache"}:{};
+      const headers=p.pixazo?{"Ocp-Apim-Subscription-Key":p.pixazo_key,"Cache-Control":"no-cache"}:{};
       const d=await genericProviderPost(p.url,p.key,body,headers);
-      await recordUsage(req);return res.json({object:"image.generation",provider:p.name,data:d,status:"completed",request_id:req.requestId});
-    }catch(err){lastError=err;if(!providerFailedStatus(err.status))break;}
+      await recordUsage(req);return res.json({object:"image.generation",provider:p.name,data:d,status:d?.status||"completed",request_id:req.requestId});
+    }catch(err){
+      lastError=err;
+      attempts.push({provider:p.name,status:err?.status||null,message:String(err?.message||err)});
+      if(!providerFailedStatus(err.status))break;
+    }
   }
   if(process.env.GEMINI_API_KEY){
     try{
       const result=await generateGeminiImage({prompt,model:String(req.body?.model||process.env.GEMINI_IMAGE_MODEL||IMAGE_FALLBACK_MODELS[0]||"gemini-3.1-flash-image").replace(/^gemini-image$/,"gemini-3.1-flash-image"),size});
       await recordUsage(req);return res.json({object:"image.generation",provider:result.provider,model:result.model,data:result.images,text:result.text||null,status:"completed",request_id:req.requestId});
-    }catch(err){lastError=err;}
+    }catch(err){lastError=err;attempts.push({provider:"gemini",status:err?.status||null,message:String(err?.message||err),model:err?.model||null});}
   }
-  if(lastError){recordError(req,lastError,502);return res.status(502).json({error:{type:"provider_error",provider:lastError.provider||"image",message:lastError.message},request_id:req.requestId});}
+  if(lastError){recordError(req,lastError,502);return res.status(502).json({error:{type:"provider_error",provider:lastError.provider||"image",message:lastError.message,attempts},request_id:req.requestId});}
   return res.status(503).json({error:{type:"provider_not_configured",message:"No image provider is configured. Add PIXAZO_API_KEY or IMAGE_API_URL(S)."},request_id:req.requestId});
 }catch(err){recordError(req,err,500);next(err)}});
 app.post("/v1/video",authenticate,requireScope("video"),async(req,res,next)=>{try{
@@ -166,13 +171,13 @@ app.post("/v1/video",authenticate,requireScope("video"),async(req,res,next)=>{tr
   const duration=Math.min(20,Math.max(1,Number(req.body?.duration||5)));
   const providers=[];
   if(process.env.VIDEO_API_URL)providers.push({url:process.env.VIDEO_API_URL,key:process.env.VIDEO_API_KEY||"",name:"configured_video_provider"});
-  if(process.env.PIXAZO_API_KEY)providers.push({url:"https://gateway.pixazo.ai/ltx/text-to-video",key:process.env.PIXAZO_API_KEY,name:"pixazo_ltx",pixazo:true});
+  if(process.env.PIXAZO_API_KEY)providers.push({url:"https://gateway.pixazo.ai/ltx/text-to-video",key:"",pixazo_key:process.env.PIXAZO_API_KEY,name:"pixazo_ltx",pixazo:true});
   providers.push(...providerList("video"));
   let lastError=null;
   for(const p of providers){
     try{
       const body=p.pixazo?{prompt}:{prompt,model:String(req.body?.model||process.env.VIDEO_MODEL||"video"),duration,aspect_ratio:String(req.body?.aspect_ratio||"16:9")};
-      const headers=p.pixazo?{"Ocp-Apim-Subscription-Key":p.key}: {};
+      const headers=p.pixazo?{"Ocp-Apim-Subscription-Key":p.pixazo_key,"Cache-Control":"no-cache"}: {};
       const d=await genericProviderPost(p.url,p.key,body,headers);
       await recordUsage(req);return res.json({object:"video.generation",provider:p.name,data:d,status:d?.status||"submitted",request_id:req.requestId});
     }catch(err){lastError=err;if(!providerFailedStatus(err.status))break;}
