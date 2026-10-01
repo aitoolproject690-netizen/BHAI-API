@@ -6,26 +6,26 @@
 *{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#080d18;color:#eef3ff}.wrap{max-width:1100px;margin:auto;padding:16px}
 .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}.logo{font-size:25px;font-weight:800}.small{color:#93a4c5;font-size:13px}.badge{padding:7px 11px;border-radius:99px;background:#18283c;color:#8ee8ae}
 .layout{display:grid;grid-template-columns:240px 1fr;gap:14px}.card{background:#111a2d;border:1px solid #263653;border-radius:16px;padding:14px}.nav{height:max-content}
-.nav button{display:block;width:100%;padding:13px;margin:5px 0;border:0;border-radius:10px;background:#19243b;color:#dce7ff;text-align:left;font-size:15px;cursor:pointer}.nav button.active,.nav button:active{background:#36517e}
+.navbtn{display:block;width:100%;padding:13px;margin:5px 0;border:0;border-radius:10px;background:#19243b;color:#dce7ff;text-align:left;font-size:15px;cursor:pointer}.navbtn.active,.navbtn:active{background:#36517e}.navbtn{color:#dce7ff;text-decoration:none;font-size:15px}
 section{display:none}section.active{display:block}h2{margin:0 0 14px}label{display:block;margin:11px 0 5px;color:#aebbd5;font-size:13px}
 input,textarea{width:100%;background:#080f1e;color:#fff;border:1px solid #344563;border-radius:10px;padding:11px;font:inherit}textarea{min-height:120px}
 .primary{background:#4f7cff;color:#fff;border:0;border-radius:10px;padding:11px 16px;font-weight:700;margin-top:10px;cursor:pointer}.secondary{background:#263653;color:#fff;border:0;border-radius:10px;padding:10px 14px;margin:8px 5px 0 0;cursor:pointer}
 pre{white-space:pre-wrap;word-break:break-word;background:#070b14;border-radius:10px;padding:13px;min-height:90px;overflow:auto}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.stat{background:#0c1425;border-radius:12px;padding:14px}.num{font-size:20px;font-weight:800;margin-top:4px}
-.ok{color:#75e6a0}.bad{color:#ff8f8f}@media(max-width:700px){.layout{grid-template-columns:1fr}.nav{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}.nav button{margin:0;font-size:12px}.stats{grid-template-columns:1fr}}
+.ok{color:#75e6a0}.bad{color:#ff8f8f}@media(max-width:700px){.layout{grid-template-columns:1fr}.nav{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}.navbtn{margin:0;font-size:12px}.stats{grid-template-columns:1fr}}
 </style></head>
 <body><div class="wrap">
 <div class="top"><div><div class="logo">🤖 BHAI API</div><div class="small">AI developer platform</div></div><div id="status" class="badge">Checking…</div></div>
 <div class="layout"><div class="card nav">
-<button id="b-dashboard" class="active" onclick="showTab('dashboard')">🏠 Dashboard</button>
-<button id="b-chat" onclick="showTab('chat')">🤖 AI Chat</button>
-<button id="b-keys" onclick="showTab('keys')">🔑 API Keys</button>
-<button id="b-docs" onclick="showTab('docs')">📚 API Docs</button>
-<button id="b-health" onclick="showTab('health')">❤️ Health</button>
+<a class="navbtn active" href="#dashboard">🏠 Dashboard</a>
+<a class="navbtn" href="#chat">🤖 AI Chat</a>
+<a class="navbtn" href="#keys">🔑 API Keys</a>
+<a class="navbtn" href="#docs">📚 API Docs</a>
+<a class="navbtn" href="#health">❤️ Health</a>
 </div>
 <div class="card">
 <section id="dashboard" class="active"><h2>Dashboard</h2><div class="stats">
 <div class="stat">Service<div class="num">BHAI API</div></div><div class="stat">Gemini<div class="num" id="gemini">—</div></div><div class="stat">Database<div class="num" id="db">—</div></div>
-</div><p class="small">API backend is live. Choose a section above.</p><button class="primary" onclick="showTab('chat')">Open AI Chat →</button></section>
+</div><p class="small">API backend is live. Choose a section above.</p><a class="primary" href="#chat" style="display:inline-block;text-decoration:none">Open AI Chat →</a></section>
 
 <section id="chat"><h2>🤖 AI Chat</h2><p class="small">Paste your BHAI API key here. It stays only in this page and is not saved.</p>
 <label>API Key</label><input id="key" type="password" placeholder="bhai_live_…">
@@ -49,19 +49,20 @@ Content-Type: application/json
 
 {"model":"gemini-3.8-flash","messages":[{"role":"user","content":"Hello bhai"}]}</pre>
 <h3>Health</h3><pre>GET /v1/health
-GET /health</pre><button class="secondary" onclick="window.open('/v1/health','_blank')">Open Health JSON</button></section>
+GET /health</pre><a class="secondary" href="/v1/health" target="_blank" style="display:inline-block;text-decoration:none">Open Health JSON</a></section>
 
 <section id="health"><h2>❤️ Health</h2><button class="primary" onclick="loadHealth()">Refresh Health</button><pre id="healthout">Loading…</pre></section>
 </div></div></div>
 <script>
 function showTab(name){
-  document.querySelectorAll('section').forEach(function(s){s.classList.remove('active')});
-  document.getElementById(name).classList.add('active');
-  document.querySelectorAll('.nav button').forEach(function(b){b.classList.remove('active')});
-  var btn=document.getElementById('b-'+name); if(btn) btn.classList.add('active');
-  if(name==='health') loadHealth();
-  window.scrollTo({top:0,behavior:'smooth'});
+  var id=name;
+  document.querySelectorAll("section").forEach(function(s){s.classList.remove("active")});
+  var el=document.getElementById(id); if(el) el.classList.add("active");
+  document.querySelectorAll(".navbtn").forEach(function(b){b.classList.remove("active")});
+  var a=document.querySelector(".navbtn[href=\"#"+name+"\"]"); if(a) a.classList.add("active");
+  if(name==="health") loadHealth();
 }
+window.addEventListener("hashchange",function(){showTab(location.hash.slice(1)||"dashboard")});
 async function loadHealth(){
   var out=document.getElementById('healthout');
   try{
