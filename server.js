@@ -65,6 +65,20 @@ function makeKey() {
   return PREFIX + crypto.randomBytes(24).toString("base64url");
 }
 
+function putMemoryKey(raw, name = "BHAI Bootstrap Key", scopes = ["*"]) {
+  const record = {
+    id: "bootstrap",
+    name,
+    keyPrefix: raw.slice(0, 18),
+    keyHash: hashKey(raw),
+    scopes,
+    status: "active",
+    usageCount: 0
+  };
+  memoryKeys.set(record.keyHash, record);
+  return record;
+}
+
 async function saveKey({ name, scopes }) {
   const raw = makeKey();
   const record = {
@@ -92,38 +106,42 @@ async function saveKey({ name, scopes }) {
 }
 
 async function authenticate(req, res, next) {
-  const header = req.headers.authorization || "";
-  const raw = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
-  if (!raw) {
-    return res.status(401).json({
-      error: { type: "authentication_error", message: "Missing Bearer API key." },
-      request_id: req.requestId
-    });
+  try {
+    const header = req.headers.authorization || "";
+    const raw = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+    if (!raw) {
+      return res.status(401).json({
+        error: { type: "authentication_error", message: "Missing Bearer API key." },
+        request_id: req.requestId
+      });
+    }
+
+    const keyHash = hashKey(raw);
+    let record;
+
+    if (pool) {
+      const result = await pool.query(
+        "SELECT id,name,scopes,status,usage_count FROM bhai_api_keys WHERE key_hash=$1 LIMIT 1",
+        [keyHash]
+      );
+      record = result.rows[0];
+      if (record) record.scopes = Array.isArray(record.scopes) ? record.scopes : [];
+    } else {
+      record = memoryKeys.get(keyHash);
+    }
+
+    if (!record || record.status !== "active") {
+      return res.status(401).json({
+        error: { type: "authentication_error", message: "Invalid or revoked API key." },
+        request_id: req.requestId
+      });
+    }
+
+    req.apiKey = record;
+    next();
+  } catch (err) {
+    next(err);
   }
-
-  const keyHash = hashKey(raw);
-  let record;
-
-  if (pool) {
-    const result = await pool.query(
-      "SELECT id,name,scopes,status,usage_count FROM bhai_api_keys WHERE key_hash=$1 LIMIT 1",
-      [keyHash]
-    );
-    record = result.rows[0];
-    if (record) record.scopes = Array.isArray(record.scopes) ? record.scopes : [];
-  } else {
-    record = memoryKeys.get(keyHash);
-  }
-
-  if (!record || record.status !== "active") {
-    return res.status(401).json({
-      error: { type: "authentication_error", message: "Invalid or revoked API key." },
-      request_id: req.requestId
-    });
-  }
-
-  req.apiKey = record;
-  next();
 }
 
 function requireScope(scope) {
@@ -139,7 +157,7 @@ function requireScope(scope) {
 }
 
 async function recordUsage(req) {
-  if (pool && req.apiKey?.id) {
+  if (pool && req.apiKey?.id && req.apiKey.id !== "bootstrap") {
     await pool.query(
       "UPDATE bhai_api_keys SET usage_count=usage_count+1,last_used_at=NOW() WHERE id=$1",
       [req.apiKey.id]
@@ -183,12 +201,8 @@ async function callGemini({ messages, model, generationConfig }) {
 
   const body = { contents };
   const systemInstruction = getSystemInstruction(messages);
-  if (systemInstruction) {
-    body.systemInstruction = { parts: [{ text: systemInstruction }] };
-  }
-  if (generationConfig && typeof generationConfig === "object") {
-    body.generationConfig = generationConfig;
-  }
+  if (systemInstruction) body.systemInstruction = { parts: [{ text: systemInstruction }] };
+  if (generationConfig && typeof generationConfig === "object") body.generationConfig = generationConfig;
 
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
@@ -205,8 +219,7 @@ async function callGemini({ messages, model, generationConfig }) {
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    const providerMessage =
-      data?.error?.message || `Gemini returned HTTP ${response.status}`;
+    const providerMessage = data?.error?.message || `Gemini returned HTTP ${response.status}`;
     const err = new Error(providerMessage);
     err.code = "provider_error";
     err.status = response.status;
@@ -220,10 +233,7 @@ async function callGemini({ messages, model, generationConfig }) {
     .filter(Boolean)
     .join("\n");
 
-  return {
-    text,
-    raw: data
-  };
+  return { text, raw: data };
 }
 
 app.get("/", (_req, res) => {
@@ -248,6 +258,7 @@ app.get("/v1/health", (_req, res) => {
     api_version: "v1",
     database: Boolean(pool),
     gemini_configured: Boolean(process.env.GEMINI_API_KEY),
+    bootstrap_key_configured: Boolean(process.env.BHAI_BOOTSTRAP_API_KEY),
     timestamp: new Date().toISOString()
   });
 });
@@ -280,8 +291,6 @@ app.post("/v1/keys", async (req, res, next) => {
 
 app.post("/v1/chat", authenticate, requireScope("chat"), async (req, res, next) => {
   try {
-    await recordUsage(req);
-
     const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
     if (!messages.length) {
       return res.status(400).json({
@@ -296,6 +305,8 @@ app.post("/v1/chat", authenticate, requireScope("chat"), async (req, res, next) 
       model,
       generationConfig: req.body?.generationConfig
     });
+
+    await recordUsage(req);
 
     res.json({
       id: "chat_" + crypto.randomBytes(10).toString("hex"),
@@ -329,11 +340,7 @@ app.post("/v1/chat", authenticate, requireScope("chat"), async (req, res, next) 
     }
     if (err.code === "provider_error") {
       return res.status(502).json({
-        error: {
-          type: "provider_error",
-          provider: err.provider,
-          message: err.message
-        },
+        error: { type: "provider_error", provider: err.provider, message: err.message },
         request_id: req.requestId
       });
     }
@@ -358,8 +365,11 @@ const server = app.listen(PORT, HOST, () => {
 
 server.on("error", (err) => {
   console.error("HTTP server failed to start:", err);
-  process.exit(1);
 });
+
+if (process.env.BHAI_BOOTSTRAP_API_KEY) {
+  putMemoryKey(process.env.BHAI_BOOTSTRAP_API_KEY, "BHAI Owner Key", ["*"]);
+}
 
 initDb()
   .then(() => console.log("BHAI API database initialization complete"))
