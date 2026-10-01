@@ -14,7 +14,11 @@ const HOST = "0.0.0.0";
 const PREFIX = process.env.BHAI_API_KEY_PREFIX || "bhai_live_";
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
 const GEMINI_FALLBACK_MODELS = String(process.env.GEMINI_FALLBACK_MODELS || "gemini-3.7-flash,gemini-3.5-flash-lite").split(",").map(x=>x.trim()).filter(Boolean);
-const IMAGE_FALLBACK_MODELS = String(process.env.IMAGE_FALLBACK_MODELS || "gemini-2.5-flash-image").split(",").map(x=>x.trim()).filter(Boolean);
+const IMAGE_FALLBACK_MODELS = String(process.env.IMAGE_FALLBACK_MODELS || "").split(",").map(x=>x.trim()).filter(Boolean);
+const IMAGE_PROVIDER_URLS = String(process.env.IMAGE_PROVIDER_URLS || "").split(",").map(x=>x.trim()).filter(Boolean);
+const VIDEO_PROVIDER_URLS = String(process.env.VIDEO_PROVIDER_URLS || "").split(",").map(x=>x.trim()).filter(Boolean);
+const IMAGE_PROVIDER_KEYS = String(process.env.IMAGE_PROVIDER_KEYS || "").split(",").map(x=>x.trim());
+const VIDEO_PROVIDER_KEYS = String(process.env.VIDEO_PROVIDER_KEYS || "").split(",").map(x=>x.trim());
 const pool = process.env.DATABASE_URL ? new Pool({connectionString:process.env.DATABASE_URL,ssl:{rejectUnauthorized:false},connectionTimeoutMillis:5000}) : null;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -69,8 +73,8 @@ app.get("/v1/models",authenticate,async(req,res)=>res.json({object:"list",data:[
 app.get("/v1/providers",authenticate,async(req,res)=>res.json({object:"providers",data:[
   capability("gemini",Boolean(process.env.GEMINI_API_KEY),{models:[GEMINI_MODEL,...GEMINI_FALLBACK_MODELS]}),
   capability("github",Boolean(process.env.GITHUB_TOKEN)),
-  capability("image",Boolean(process.env.GEMINI_API_KEY||process.env.IMAGE_API_URL)),
-  capability("video",Boolean(process.env.VIDEO_API_URL)),
+  capability("image",Boolean(process.env.GEMINI_API_KEY||process.env.IMAGE_API_URL||process.env.IMAGE_PROVIDER_URLS||process.env.PIXAZO_API_KEY),{providers:[...(process.env.PIXAZO_API_KEY?["pixazo"]:[]),...(process.env.IMAGE_API_URL?["configured"]:[]),...IMAGE_PROVIDER_URLS.map((_,i)=>"fallback_"+(i+1)),...(process.env.GEMINI_API_KEY?["gemini"]:[])]}),
+  capability("video",Boolean(process.env.VIDEO_API_URL||process.env.VIDEO_PROVIDER_URLS||process.env.PIXAZO_API_KEY),{providers:[...(process.env.PIXAZO_API_KEY?["pixazo"]:[]),...(process.env.VIDEO_API_URL?["configured"]:[]),...VIDEO_PROVIDER_URLS.map((_,i)=>"fallback_"+(i+1))]}),
   capability("search",Boolean(process.env.SEARCH_API_URL)),
   capability("files",Boolean(process.env.FILES_API_URL)),
   capability("vision",Boolean(process.env.VISION_API_URL||process.env.GEMINI_API_KEY)),
@@ -93,8 +97,8 @@ app.get("/v1/errors",async(req,res)=>{const admin=req.headers["x-bhai-admin-key"
 app.get("/v1/capabilities",authenticate,async(req,res)=>res.json({object:"capabilities",api_version:"v1",database:Boolean(pool),providers:[
   {name:"gemini",configured:Boolean(process.env.GEMINI_API_KEY),models:[GEMINI_MODEL,...GEMINI_FALLBACK_MODELS]},
   {name:"github",configured:Boolean(process.env.GITHUB_TOKEN)},
-  {name:"image",configured:Boolean(process.env.IMAGE_API_URL)},
-  {name:"video",configured:Boolean(process.env.VIDEO_API_URL)},
+  {name:"image",configured:Boolean(process.env.IMAGE_API_URL||process.env.IMAGE_PROVIDER_URLS||process.env.PIXAZO_API_KEY||process.env.GEMINI_API_KEY)},
+  {name:"video",configured:Boolean(process.env.VIDEO_API_URL||process.env.VIDEO_PROVIDER_URLS||process.env.PIXAZO_API_KEY)},
   {name:"search",configured:Boolean(process.env.SEARCH_API_URL)},
   {name:"files",configured:Boolean(process.env.FILES_API_URL)},
   {name:"vision",configured:Boolean(process.env.VISION_API_URL||process.env.GEMINI_API_KEY)},
@@ -104,31 +108,78 @@ async function callGeminiVision({prompt,imageBase64,mimeType="image/png",model})
 
 async function generateGeminiImage({prompt,model,size}){if(!process.env.GEMINI_API_KEY){const e=new Error("GEMINI_API_KEY is not configured.");e.code="provider_not_configured";throw e}const models=[...new Set([model,...IMAGE_FALLBACK_MODELS].filter(Boolean))];let lastError=null;for(const candidateModel of models){try{const response=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(candidateModel)}:generateContent`,{method:"POST",headers:{"Content-Type":"application/json","x-goog-api-key":process.env.GEMINI_API_KEY},body:JSON.stringify({contents:[{role:"user",parts:[{text:prompt}]}],generationConfig:{responseModalities:["TEXT","IMAGE"],imageConfig:{imageSize:size}}})});const data=await response.json().catch(()=>({}));if(!response.ok){const e=new Error(data?.error?.message||`Gemini image HTTP ${response.status}`);e.code="provider_error";e.status=response.status;e.provider="gemini";e.model=candidateModel;lastError=e;if([400,401,403,404,408,409,429,500,502,503,504].includes(response.status))continue;throw e}const parts=(data?.candidates||[]).flatMap(c=>c?.content?.parts||[]);const images=parts.filter(p=>p?.inlineData?.data).map(p=>({mime_type:p.inlineData.mimeType||"image/png",base64:p.inlineData.data}));const text=parts.map(p=>p?.text).filter(Boolean).join("\n");if(!images.length){const e=new Error("Gemini image provider returned no image data.");e.code="provider_error";e.status=502;e.provider="gemini";e.model=candidateModel;lastError=e;continue}return{provider:"gemini",model:candidateModel,images,text,raw:data}}catch(err){lastError=err;if(err.code!=="provider_error")throw err}}throw lastError||new Error("All Gemini image models failed.")}
 
-async function genericProviderPost(url,key,body){
-  const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json",...(key?{"Authorization":"Bearer "+key}:{})},body:JSON.stringify(body)});
+async function genericProviderPost(url,key,body,extraHeaders={}){
+  const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json",...(key?{"Authorization":"Bearer "+key}:{}),...extraHeaders},body:JSON.stringify(body)});
   const d=await r.json().catch(()=>({}));
   if(!r.ok){const e=new Error(d?.error?.message||d?.message||("Provider HTTP "+r.status));e.code="provider_error";e.status=r.status;throw e}
   return d;
 }
+function providerFailedStatus(status){return [401,402,403,408,409,425,429,500,502,503,504].includes(Number(status))}
+function providerList(kind){
+  const isImage=kind==="image";
+  const urls=isImage?IMAGE_PROVIDER_URLS:VIDEO_PROVIDER_URLS;
+  const keys=isImage?IMAGE_PROVIDER_KEYS:VIDEO_PROVIDER_KEYS;
+  return urls.map((url,i)=>({url,key:keys[i]||keys[0]||"",name:isImage?"image_provider_"+(i+1):"video_provider_"+(i+1)}));
+}
+async function tryExternalProviders(kind,body){
+  const providers=providerList(kind);
+  let last=null;
+  for(const p of providers){
+    try{
+      const d=await genericProviderPost(p.url,p.key,body);
+      return {provider:p.name,data:d};
+    }catch(err){
+      last=err;
+      if(!providerFailedStatus(err.status))throw err;
+    }
+  }
+  if(last)throw last;
+  return null;
+}
 app.post("/v1/image",authenticate,requireScope("image"),async(req,res,next)=>{try{
   const prompt=String(req.body?.prompt||"").trim();if(!prompt)return res.status(400).json({error:{type:"invalid_request_error",message:"prompt is required."},request_id:req.requestId});
   const size=String(req.body?.size||"1024x1024");
-  if(process.env.IMAGE_API_URL){
-    const d=await genericProviderPost(process.env.IMAGE_API_URL,process.env.IMAGE_API_KEY,{prompt,model:String(req.body?.model||process.env.IMAGE_MODEL||"image"),size});
-    await recordUsage(req);return res.json({object:"image.generation",provider:"configured_image_provider",data:d,status:"completed",request_id:req.requestId});
+  const external=[];
+  if(process.env.IMAGE_API_URL)external.push({url:process.env.IMAGE_API_URL,key:process.env.IMAGE_API_KEY||"",name:"configured_image_provider"});
+  if(process.env.PIXAZO_API_KEY)external.push({url:"https://gateway.pixazo.ai/flux-1-schnell/v1/getData",key:process.env.PIXAZO_API_KEY,name:"pixazo_flux_schnell",pixazo:true});
+  external.push(...providerList("image"));
+  let lastError=null;
+  for(const p of external){
+    try{
+      const body=p.pixazo?{prompt,num_steps:4,width:1024,height:1024}:{prompt,model:String(req.body?.model||process.env.IMAGE_MODEL||"image"),size};
+      const headers=p.pixazo?{"Ocp-Apim-Subscription-Key":p.key,"Cache-Control":"no-cache"}:{};
+      const d=await genericProviderPost(p.url,p.key,body,headers);
+      await recordUsage(req);return res.json({object:"image.generation",provider:p.name,data:d,status:"completed",request_id:req.requestId});
+    }catch(err){lastError=err;if(!providerFailedStatus(err.status))break;}
   }
   if(process.env.GEMINI_API_KEY){
-    const result=await generateGeminiImage({prompt,model:String(req.body?.model||process.env.GEMINI_IMAGE_MODEL||IMAGE_FALLBACK_MODELS[0]),size});
-    await recordUsage(req);
-    return res.json({object:"image.generation",provider:result.provider,model:result.model,data:result.images,text:result.text||null,status:"completed",request_id:req.requestId});
+    try{
+      const result=await generateGeminiImage({prompt,model:String(req.body?.model||process.env.GEMINI_IMAGE_MODEL||IMAGE_FALLBACK_MODELS[0]||"gemini-image"),size});
+      await recordUsage(req);return res.json({object:"image.generation",provider:result.provider,model:result.model,data:result.images,text:result.text||null,status:"completed",request_id:req.requestId});
+    }catch(err){lastError=err;}
   }
-  return res.status(503).json({error:{type:"provider_not_configured",message:"No image provider is configured."},request_id:req.requestId});
-}catch(err){if(err.code==="provider_not_configured")return res.status(503).json({error:{type:"provider_not_configured",message:err.message},request_id:req.requestId});if(err.code==="provider_error")return res.status(502).json({error:{type:"provider_error",provider:err.provider||"image",message:err.message},request_id:req.requestId});next(err)}});
+  if(lastError){recordError(req,lastError,502);return res.status(502).json({error:{type:"provider_error",provider:lastError.provider||"image",message:lastError.message},request_id:req.requestId});}
+  return res.status(503).json({error:{type:"provider_not_configured",message:"No image provider is configured. Add PIXAZO_API_KEY or IMAGE_API_URL(S)."},request_id:req.requestId});
+}catch(err){recordError(req,err,500);next(err)}});
 app.post("/v1/video",authenticate,requireScope("video"),async(req,res,next)=>{try{
-  if(!process.env.VIDEO_API_URL)return res.status(503).json({error:{type:"provider_not_configured",message:"VIDEO_API_URL is not configured."},request_id:req.requestId});
-  const d=await genericProviderPost(process.env.VIDEO_API_URL,process.env.VIDEO_API_KEY,{prompt:String(req.body?.prompt||""),model:String(req.body?.model||process.env.VIDEO_MODEL||"video"),duration:Number(req.body?.duration||5),aspect_ratio:String(req.body?.aspect_ratio||"16:9")});
-  await recordUsage(req);res.json({object:"video.generation",provider:"configured_video_provider",data:d,request_id:req.requestId});
-}catch(err){next(err)}});
+  const prompt=String(req.body?.prompt||"").trim();if(!prompt)return res.status(400).json({error:{type:"invalid_request_error",message:"prompt is required."},request_id:req.requestId});
+  const duration=Math.min(20,Math.max(1,Number(req.body?.duration||5)));
+  const providers=[];
+  if(process.env.VIDEO_API_URL)providers.push({url:process.env.VIDEO_API_URL,key:process.env.VIDEO_API_KEY||"",name:"configured_video_provider"});
+  if(process.env.PIXAZO_API_KEY)providers.push({url:"https://gateway.pixazo.ai/ltx-video/v1/text-to-video",key:process.env.PIXAZO_API_KEY,name:"pixazo_ltx",pixazo:true});
+  providers.push(...providerList("video"));
+  let lastError=null;
+  for(const p of providers){
+    try{
+      const body=p.pixazo?{prompt}:{prompt,model:String(req.body?.model||process.env.VIDEO_MODEL||"video"),duration,aspect_ratio:String(req.body?.aspect_ratio||"16:9")};
+      const headers=p.pixazo?{"Ocp-Apim-Subscription-Key":p.key}: {};
+      const d=await genericProviderPost(p.url,p.key,body,headers);
+      await recordUsage(req);return res.json({object:"video.generation",provider:p.name,data:d,status:d?.status||"submitted",request_id:req.requestId});
+    }catch(err){lastError=err;if(!providerFailedStatus(err.status))break;}
+  }
+  if(lastError){recordError(req,lastError,502);return res.status(502).json({error:{type:"provider_error",provider:lastError.provider||"video",message:lastError.message},request_id:req.requestId});}
+  return res.status(503).json({error:{type:"provider_not_configured",message:"No video provider is configured. Add PIXAZO_API_KEY or VIDEO_API_URL(S)."},request_id:req.requestId});
+}catch(err){recordError(req,err,500);next(err)}});
 app.get("/v1/github/me",authenticate,requireScope("github"),async(req,res,next)=>{try{
   if(!process.env.GITHUB_TOKEN)return res.status(503).json({error:{type:"provider_not_configured",message:"GITHUB_TOKEN is not configured."},request_id:req.requestId});
   const r=await fetch("https://api.github.com/user",{headers:{Authorization:"Bearer "+process.env.GITHUB_TOKEN,Accept:"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28","User-Agent":"BHAI-API"}});
