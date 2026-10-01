@@ -12,6 +12,8 @@ const PORT = Number(process.env.PORT || 3000);
 const HOST = "0.0.0.0";
 const PREFIX = process.env.BHAI_API_KEY_PREFIX || "bhai_live_";
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
+const GEMINI_FALLBACK_MODELS = String(process.env.GEMINI_FALLBACK_MODELS || "gemini-3.7-flash,gemini-3.5-flash-lite")
+  .split(",").map((x) => x.trim()).filter(Boolean);
 const pool = process.env.DATABASE_URL
   ? new Pool({
       connectionString: process.env.DATABASE_URL,
@@ -199,41 +201,70 @@ async function callGemini({ messages, model, generationConfig }) {
     throw err;
   }
 
-  const body = { contents };
-  const systemInstruction = getSystemInstruction(messages);
-  if (systemInstruction) body.systemInstruction = { parts: [{ text: systemInstruction }] };
-  if (generationConfig && typeof generationConfig === "object") body.generationConfig = generationConfig;
+  const models = [...new Set([model, ...GEMINI_FALLBACK_MODELS])];
+  let lastError = null;
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": process.env.GEMINI_API_KEY
-      },
-      body: JSON.stringify(body)
+  for (const candidateModel of models) {
+    const body = { contents };
+    const systemInstruction = getSystemInstruction(messages);
+    if (systemInstruction) body.systemInstruction = { parts: [{ text: systemInstruction }] };
+    if (generationConfig && typeof generationConfig === "object") body.generationConfig = generationConfig;
+
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(candidateModel)}:generateContent`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-goog-api-key": process.env.GEMINI_API_KEY
+          },
+          body: JSON.stringify(body)
+        }
+      );
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        const providerMessage = data?.error?.message || `Gemini returned HTTP ${response.status}`;
+        const err = new Error(providerMessage);
+        err.code = "provider_error";
+        err.status = response.status;
+        err.provider = "gemini";
+        err.model = candidateModel;
+        lastError = err;
+
+        // Retry/fallback on model availability, quota/rate-limit, or transient provider failures.
+        if (![400, 401, 403, 404, 408, 409, 429, 500, 502, 503, 504].includes(response.status)) {
+          throw err;
+        }
+        continue;
+      }
+
+      const text = (data?.candidates || [])
+        .flatMap((candidate) => candidate?.content?.parts || [])
+        .map((part) => part?.text)
+        .filter(Boolean)
+        .join("\n");
+
+      if (!text) {
+        const err = new Error("Gemini returned an empty response.");
+        err.code = "provider_error";
+        err.status = 502;
+        err.provider = "gemini";
+        err.model = candidateModel;
+        lastError = err;
+        continue;
+      }
+
+      return { text, raw: data, model: candidateModel };
+    } catch (err) {
+      lastError = err;
+      if (err.code !== "provider_error") throw err;
     }
-  );
-
-  const data = await response.json().catch(() => ({}));
-
-  if (!response.ok) {
-    const providerMessage = data?.error?.message || `Gemini returned HTTP ${response.status}`;
-    const err = new Error(providerMessage);
-    err.code = "provider_error";
-    err.status = response.status;
-    err.provider = "gemini";
-    throw err;
   }
 
-  const text = (data?.candidates || [])
-    .flatMap((candidate) => candidate?.content?.parts || [])
-    .map((part) => part?.text)
-    .filter(Boolean)
-    .join("\n");
-
-  return { text, raw: data };
+  throw lastError || new Error("All Gemini models failed.");
 }
 
 app.get("/", (_req, res) => {
@@ -313,7 +344,7 @@ app.post("/v1/chat", authenticate, requireScope("chat"), async (req, res, next) 
       object: "chat.completion",
       created: Math.floor(Date.now() / 1000),
       provider: "gemini",
-      model,
+      model: result.model || model,
       choices: [
         {
           index: 0,
