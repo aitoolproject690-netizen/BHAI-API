@@ -37,7 +37,19 @@ async function verifyKey(raw){
   }catch(e){out.textContent="Verification failed: "+e.message}
 }
 function clearChat(){document.getElementById("chatout").textContent="Response will appear here…";const key=document.getElementById("key");if(key)key.value=""}
-async function copyText(t){try{await navigator.clipboard.writeText(t);alert("Copied")}catch(e){prompt("Copy this value:",t)}}
+async function copyText(t){
+  const value=String(t??"");
+  try{
+    await navigator.clipboard.writeText(value);
+    alert("✅ Full value copied");
+  }catch(e){
+    const ta=document.createElement("textarea");
+    ta.value=value;ta.style.position="fixed";ta.style.opacity="0";
+    document.body.appendChild(ta);ta.focus();ta.select();
+    try{document.execCommand("copy");alert("✅ Full value copied")}catch(_){prompt("Copy this full value:",value)}
+    ta.remove();
+  }
+}
 function renderKeyHistory(items){
   const box=document.getElementById("keyhistory"); if(!box)return;
   if(!items.length){box.innerHTML='<div class="notice">No developer keys yet.</div>';return}
@@ -56,8 +68,8 @@ async function createKey(){
   try{
     const scopes=[...document.querySelectorAll(".scope:checked")].map(x=>x.value);
     const d=await adminRequest("/v1/keys",{method:"POST",body:JSON.stringify({name:document.getElementById("keyName").value.trim()||"My App",scopes})});
-    out.innerHTML='<b>New API key created — copy it now. It is shown only once.</b><pre>'+escapeHtml(JSON.stringify(d,null,2))+'</pre><button class="primary" id="copyNewKey" type="button">📋 Copy API Key</button> <button class="secondary" id="verifyNewKey" type="button">✅ Test This Key</button>';
-    document.getElementById("copyNewKey").addEventListener("click",()=>copyText(d.key));
+    out.innerHTML='<b>New API key created — copy it now. It is shown only once.</b><label for="newApiKeyValue">Full API Key</label><input id="newApiKeyValue" class="full-key" type="text" readonly value="'+escapeAttr(d.key)+'" spellcheck="false" autocapitalize="off" autocomplete="off"><button class="primary" id="copyNewKey" type="button">📋 Copy Full API Key</button> <button class="secondary" id="verifyNewKey" type="button">✅ Test This Key</button><pre>'+escapeHtml(JSON.stringify({...d,key:"(shown in the full-key field above)"},null,2))+'</pre>';
+    document.getElementById("copyNewKey").addEventListener("click",()=>copyText(document.getElementById("newApiKeyValue").value));
     document.getElementById("verifyNewKey").addEventListener("click",()=>verifyKey(d.key));
     document.getElementById("key").value=d.key;
     await listKeys();
