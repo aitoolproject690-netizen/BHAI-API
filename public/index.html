@@ -76,15 +76,15 @@ pre{white-space:pre-wrap;word-break:break-word;background:#070b14;border-radius:
 
 <section id="keys">
 <h2>🔑 API Keys</h2>
-<div class="notice">Owner/admin key is intentionally never shown in this public page.</div>
-<pre>POST /v1/keys
-x-bhai-admin-key: YOUR_ADMIN_KEY
-
-Body:
-{"name":"My App","scopes":["chat","coding"]}
-
-Note: without DATABASE_URL, developer keys are memory-only and reset when the service restarts.</pre>
-<button class="secondary" type="button" id="copyKeys">Copy endpoint</button>
+<div class="notice">Admin key is used only for these requests and is not saved in the browser.</div>
+<label for="adminKey">Admin Key</label><input id="adminKey" type="password" autocomplete="off" placeholder="Paste owner admin key">
+<label for="keyName">Key Name</label><input id="keyName" value="My App" maxlength="120">
+<label>Scopes</label>
+<div><label><input class="scope" type="checkbox" value="chat" checked> Chat</label><label><input class="scope" type="checkbox" value="coding"> Coding</label><label><input class="scope" type="checkbox" value="github"> GitHub</label><label><input class="scope" type="checkbox" value="image"> Image</label><label><input class="scope" type="checkbox" value="video"> Video</label><label><input class="scope" type="checkbox" value="search"> Search</label><label><input class="scope" type="checkbox" value="agent"> Agent</label></div>
+<button class="primary" type="button" id="createKey">Create API Key</button>
+<button class="secondary" type="button" id="listKeys">Refresh Keys</button>
+<pre id="keyout">Key management response will appear here…</pre>
+<div class="notice">Without DATABASE_URL, developer keys are memory-only and reset when the service restarts. The generated raw key is shown only once.</div>
 </section>
 
 <section id="docs">
