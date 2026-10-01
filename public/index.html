@@ -5,111 +5,24 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>BHAI API</title>
 <style>
-*{box-sizing:border-box}
-html{scroll-behavior:smooth}
-body{margin:0;font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#080d18;color:#eef3ff}
-.wrap{max-width:1100px;margin:auto;padding:16px}
-.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
-.logo{font-size:25px;font-weight:800}.small{color:#93a4c5;font-size:13px}
-.badge{padding:7px 11px;border-radius:99px;background:#18283c;color:#8ee8ae}
-.layout{display:grid;grid-template-columns:240px 1fr;gap:14px}
-.card{background:#111a2d;border:1px solid #263653;border-radius:16px;padding:14px}
-.nav{height:max-content;position:sticky;top:10px}
-.navbtn{display:block;width:100%;padding:14px;margin:5px 0;border:0;border-radius:10px;background:#19243b;color:#dce7ff;text-align:left;font-size:15px;cursor:pointer;text-decoration:none}
-.navbtn:hover,.navbtn:focus{background:#36517e;outline:2px solid #5b86ff}
-main section{display:none}
-main section:target{display:block}
-main:not(:has(section:target)) #dashboard{display:block}
-h2{margin:0 0 14px}
-label{display:block;margin:11px 0 5px;color:#aebbd5;font-size:13px}
-input,textarea{width:100%;background:#080f1e;color:#fff;border:1px solid #344563;border-radius:10px;padding:11px;font:inherit}
-textarea{min-height:120px}
-.primary,.secondary{display:inline-block;border-radius:10px;padding:11px 16px;font-weight:700;margin-top:10px;cursor:pointer;text-decoration:none}
-.primary{background:#4f7cff;color:#fff;border:0}.secondary{background:#263653;color:#fff;border:0;margin-right:5px}
-pre{white-space:pre-wrap;word-break:break-word;background:#070b14;border-radius:10px;padding:13px;min-height:90px;overflow:auto}
-.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
-.stat{background:#0c1425;border-radius:12px;padding:14px}.num{font-size:20px;font-weight:800;margin-top:4px}
-.ok{color:#75e6a0}.bad{color:#ff8f8f}
-.notice{padding:12px;border:1px solid #33476a;border-radius:10px;background:#0c1425}
-@media(max-width:700px){.layout{grid-template-columns:1fr}.nav{position:static;display:grid;grid-template-columns:repeat(3,1fr);gap:5px}.navbtn{margin:0;font-size:12px}.stats{grid-template-columns:1fr}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#080d18;color:#eef3ff}.wrap{max-width:1100px;margin:auto;padding:16px}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}.logo{font-size:25px;font-weight:800}.small{color:#93a4c5;font-size:13px}.badge{padding:7px 11px;border-radius:99px;background:#18283c;color:#8ee8ae}.layout{display:grid;grid-template-columns:240px 1fr;gap:14px}.card{background:#111a2d;border:1px solid #263653;border-radius:16px;padding:14px}.nav{height:max-content;position:sticky;top:10px}.navbtn{display:block;width:100%;padding:14px;margin:5px 0;border:0;border-radius:10px;background:#19243b;color:#dce7ff;text-align:left;font-size:15px;cursor:pointer;text-decoration:none}.navbtn:hover,.navbtn:focus{background:#36517e;outline:2px solid #5b86ff}main section{display:none}main section:target{display:block}main:not(:has(section:target)) #dashboard{display:block}h2{margin:0 0 14px}label{display:block;margin:11px 0 5px;color:#aebbd5;font-size:13px}input,textarea{width:100%;background:#080f1e;color:#fff;border:1px solid #344563;border-radius:10px;padding:11px;font:inherit}textarea{min-height:120px}.primary,.secondary{display:inline-block;border-radius:10px;padding:11px 16px;font-weight:700;margin-top:10px;cursor:pointer;text-decoration:none}.primary{background:#4f7cff;color:#fff;border:0}.secondary{background:#263653;color:#fff;border:0;margin-right:5px}pre{white-space:pre-wrap;word-break:break-word;background:#070b14;border-radius:10px;padding:13px;min-height:90px;overflow:auto}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.stat{background:#0c1425;border-radius:12px;padding:14px}.num{font-size:20px;font-weight:800;margin-top:4px}.ok{color:#75e6a0}.bad{color:#ff8f8f}.notice{padding:12px;border:1px solid #33476a;border-radius:10px;background:#0c1425}.keyrow{display:flex;gap:8px;align-items:center;justify-content:space-between;background:#0c1425;border:1px solid #263653;border-radius:12px;padding:12px;margin:8px 0}.keyrow .small{margin-top:3px}.keyrow button{margin-top:0}@media(max-width:700px){.layout{grid-template-columns:1fr}.nav{position:static;display:grid;grid-template-columns:repeat(3,1fr);gap:5px}.navbtn{margin:0;font-size:12px}.stats{grid-template-columns:1fr}.keyrow{align-items:flex-start;flex-wrap:wrap}.keyrow button{font-size:12px;padding:9px}}
 </style>
 </head>
-<body>
-<div class="wrap">
-<header class="top">
-<div><div class="logo">🤖 BHAI API</div><div class="small">AI developer platform</div></div>
-<div id="status" class="badge">Checking…</div>
-</header>
-
-<div class="layout">
-<nav class="card nav" aria-label="BHAI API navigation">
-<a class="navbtn" href="#dashboard">🏠 Dashboard</a>
-<a class="navbtn" href="#chat">🤖 AI Chat</a>
-<a class="navbtn" href="#keys">🔑 API Keys</a>
-<a class="navbtn" href="#docs">📚 API Docs</a>
-<a class="navbtn" href="#health">❤️ Health</a>
-</nav>
-
+<body><div class="wrap"><header class="top"><div><div class="logo">🤖 BHAI API</div><div class="small">AI developer platform</div></div><div id="status" class="badge">Checking…</div></header>
+<div class="layout"><nav class="card nav" aria-label="BHAI API navigation"><a class="navbtn" href="#dashboard">🏠 Dashboard</a><a class="navbtn" href="#chat">🤖 AI Chat</a><a class="navbtn" href="#keys">🔑 API Keys</a><a class="navbtn" href="#docs">📚 API Docs</a><a class="navbtn" href="#health">❤️ Health</a></nav>
 <main class="card">
-<section id="dashboard">
-<h2>Dashboard</h2>
-<div class="stats">
-<div class="stat">Service<div class="num">BHAI API</div></div>
-<div class="stat">Gemini<div class="num" id="gemini">—</div></div>
-<div class="stat">Database<div class="num" id="db">—</div></div>
-</div>
-<p class="small">Navigation is native HTML — no menu JavaScript is required.</p>
-<a class="primary" href="#chat">Open AI Chat →</a>
-</section>
-
-<section id="chat">
-<h2>🤖 AI Chat</h2>
-<p class="small">Paste your BHAI API key. It is used only for this request and is not saved.</p>
-<label for="key">API Key</label>
-<input id="key" type="password" autocomplete="off" placeholder="bhai_live_…">
-<label for="msg">Message</label>
-<textarea id="msg">Hello bhai! Reply in Hinglish.</textarea>
-<button class="primary" type="button" id="sendChat">Send to BHAI API</button>
-<button class="secondary" type="button" id="clearChat">Clear</button>
-<pre id="chatout">Response will appear here…</pre>
-</section>
-
-<section id="keys">
-<h2>🔑 API Keys</h2>
-<div class="notice">Admin key is used only for these requests and is not saved in the browser.</div>
-<label for="adminKey">Admin Key</label><input id="adminKey" type="password" autocomplete="off" placeholder="Paste owner admin key">
-<label for="keyName">Key Name</label><input id="keyName" value="My App" maxlength="120">
-<label>Scopes</label>
-<div><label><input class="scope" type="checkbox" value="chat" checked> Chat</label><label><input class="scope" type="checkbox" value="coding"> Coding</label><label><input class="scope" type="checkbox" value="github"> GitHub</label><label><input class="scope" type="checkbox" value="image"> Image</label><label><input class="scope" type="checkbox" value="video"> Video</label><label><input class="scope" type="checkbox" value="search"> Search</label><label><input class="scope" type="checkbox" value="agent"> Agent</label></div>
-<button class="primary" type="button" id="createKey">Create API Key</button>
-<button class="secondary" type="button" id="listKeys">Refresh Keys</button>
-<pre id="keyout">Key management response will appear here…</pre>
-<div class="notice">Without DATABASE_URL, developer keys are memory-only and reset when the service restarts. The generated raw key is shown only once.</div>
-</section>
-
-<section id="docs">
-<h2>📚 API Docs</h2>
-<h3>Chat</h3>
-<pre>POST /v1/chat
+<section id="dashboard"><h2>Dashboard</h2><div class="stats"><div class="stat">Service<div class="num">BHAI API</div></div><div class="stat">Gemini<div class="num" id="gemini">—</div></div><div class="stat">Database<div class="num" id="db">—</div></div></div><p class="small">Navigation is native HTML — no menu JavaScript is required.</p><a class="primary" href="#chat">Open AI Chat →</a></section>
+<section id="chat"><h2>🤖 AI Chat</h2><p class="small">Paste your BHAI API key. It is used only for this request and is not saved.</p><label for="key">API Key</label><input id="key" type="password" autocomplete="off" placeholder="bhai_live_…"><label for="msg">Message</label><textarea id="msg">Hello bhai! Reply in Hinglish.</textarea><button class="primary" type="button" id="sendChat">Send to BHAI API</button><button class="secondary" type="button" id="clearChat">Clear</button><pre id="chatout">Response will appear here…</pre></section>
+<section id="keys"><h2>🔑 API Keys</h2><div class="notice">Admin key is used only for management requests and is not saved in the browser.</div><label for="adminKey">Admin Key</label><input id="adminKey" type="password" autocomplete="off" placeholder="Paste owner admin key"><label for="keyName">Key Name</label><input id="keyName" value="My App" maxlength="120"><label>Scopes</label><div><label><input class="scope" type="checkbox" value="chat" checked> Chat</label><label><input class="scope" type="checkbox" value="coding"> Coding</label><label><input class="scope" type="checkbox" value="github"> GitHub</label><label><input class="scope" type="checkbox" value="image"> Image</label><label><input class="scope" type="checkbox" value="video"> Video</label><label><input class="scope" type="checkbox" value="search"> Search</label><label><input class="scope" type="checkbox" value="agent"> Agent</label></div><button class="primary" type="button" id="createKey">Create API Key</button><button class="secondary" type="button" id="listKeys">Refresh Key History</button><pre id="keyout">Key management response will appear here…</pre><h3>🗂️ Key History</h3><div id="keyhistory" class="notice">Tap “Refresh Key History” to load keys.</div><p class="small">For security, the full raw API key is shown only once when created. History shows the key prefix, status and usage. Revoked keys remain in history but can no longer authenticate.</p></section>
+<section id="docs"><h2>📚 API Docs</h2><h3>Chat</h3><pre>POST /v1/chat
 Authorization: Bearer YOUR_API_KEY
 Content-Type: application/json
 
-{"model":"gemini-3.8-flash","messages":[{"role":"user","content":"Hello bhai"}]}</pre>
-<h3>Health</h3>
-<pre>GET /v1/health
-GET /health</pre>
-<a class="secondary" href="/v1/health" target="_blank" rel="noopener">Open Health JSON</a>
-</section>
+{"model":"gemini-3.8-flash","messages":[{"role":"user","content":"Hello bhai"}]}</pre><h3>GitHub</h3><pre>GET /v1/github/me
+Authorization: Bearer YOUR_API_KEY
 
-<section id="health">
-<h2>❤️ Health</h2>
-<button class="primary" type="button" id="refreshHealth">Refresh Health</button>
-<pre id="healthout">Loading…</pre>
-</section>
-</main>
-</div>
-</div>
-
-<script src="/app.js" defer></script>
-</body>
-</html>
+POST /v1/github/repos
+Authorization: Bearer YOUR_API_KEY</pre><h3>Health</h3><pre>GET /v1/health
+GET /health</pre><a class="secondary" href="/v1/health" target="_blank" rel="noopener">Open Health JSON</a></section>
+<section id="health"><h2>❤️ Health</h2><button class="primary" type="button" id="refreshHealth">Refresh Health</button><pre id="healthout">Loading…</pre></section>
+</main></div></div><script src="/app.js" defer></script></body></html>
