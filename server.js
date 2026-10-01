@@ -26,6 +26,7 @@ app.use(express.static(path.join(__dirname,"public")));
 function requestId(){return "req_"+crypto.randomBytes(10).toString("hex")}
 app.use((req,res,next)=>{const id=req.headers["x-request-id"]||requestId();res.setHeader("x-request-id",id);req.requestId=id;next()});
 const memoryKeys=new Map();
+const ALLOWED_SCOPES=new Set(["chat","coding","github","image","video","files","search","agent"]);
 
 async function initDb(){if(!pool)return;await pool.query(`
 CREATE TABLE IF NOT EXISTS bhai_api_keys(id BIGSERIAL PRIMARY KEY,name TEXT NOT NULL,key_prefix TEXT NOT NULL,key_hash TEXT NOT NULL UNIQUE,scopes JSONB NOT NULL DEFAULT '[\"chat\"]'::jsonb,status TEXT NOT NULL DEFAULT 'active',usage_count BIGINT NOT NULL DEFAULT 0,last_used_at TIMESTAMPTZ,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),revoked_at TIMESTAMPTZ);
@@ -43,7 +44,7 @@ async function callGemini({messages,model,generationConfig}){if(!process.env.GEM
 app.get("/",(_req,res)=>res.sendFile(path.join(__dirname,"public","index.html")));
 app.get("/health",(_req,res)=>res.status(200).json({ok:true,service:"BHAI API",version:"1.0.0"}));
 app.get("/v1/health",(_req,res)=>res.json({ok:true,service:"BHAI API",api_version:"v1",database:Boolean(pool),gemini_configured:Boolean(process.env.GEMINI_API_KEY),bootstrap_key_configured:Boolean(process.env.BHAI_BOOTSTRAP_API_KEY),test_key_configured:Boolean(process.env.BHAI_TEST_API_KEY),timestamp:new Date().toISOString()}));
-app.post("/v1/keys",async(req,res,next)=>{try{const admin=req.headers["x-bhai-admin-key"];if(!process.env.BHAI_ADMIN_KEY||admin!==process.env.BHAI_ADMIN_KEY)return res.status(401).json({error:{type:"authentication_error",message:"Admin key required."},request_id:req.requestId});const name=String(req.body?.name||"Developer Key").slice(0,120);const scopes=Array.isArray(req.body?.scopes)?req.body.scopes:["chat"];const created=await saveKey({name,scopes});res.status(201).json({object:"api_key",key:created.key,name:created.name,scopes:created.scopes,created_at:new Date().toISOString()})}catch(err){next(err)}});
+app.post("/v1/keys",async(req,res,next)=>{try{const admin=req.headers["x-bhai-admin-key"];if(!process.env.BHAI_ADMIN_KEY||admin!==process.env.BHAI_ADMIN_KEY)return res.status(401).json({error:{type:"authentication_error",message:"Admin key required."},request_id:req.requestId});const name=String(req.body?.name||"Developer Key").slice(0,120);const scopes=(Array.isArray(req.body?.scopes)?req.body.scopes:["chat"]).map(String).filter(x=>ALLOWED_SCOPES.has(x));const created=await saveKey({name,scopes});res.status(201).json({object:"api_key",key:created.key,name:created.name,scopes:created.scopes,created_at:new Date().toISOString()})}catch(err){next(err)}});
 
 app.get("/v1/keys",async(req,res,next)=>{try{const admin=req.headers["x-bhai-admin-key"];if(!process.env.BHAI_ADMIN_KEY||admin!==process.env.BHAI_ADMIN_KEY)return res.status(401).json({error:{type:"authentication_error",message:"Admin key required."},request_id:req.requestId});if(pool){const r=await pool.query("SELECT id,name,key_prefix,scopes,status,usage_count,last_used_at,created_at,revoked_at FROM bhai_api_keys ORDER BY created_at DESC");return res.json({object:"list",data:r.rows})}res.json({object:"list",data:[...memoryKeys.values()].filter(x=>x.id!=="bootstrap"&&x.id!=="test").map(x=>({id:x.id,name:x.name,key_prefix:x.keyPrefix,scopes:x.scopes,status:x.status,usage_count:x.usageCount||0,created_at:null}))})}catch(err){next(err)}});
 
@@ -81,17 +82,56 @@ app.post("/v1/agent",authenticate,requireScope("agent"),async(req,res,next)=>{tr
   res.json({object:"agent.run",job});
 }catch(err){next(err)}});
 app.get("/v1/jobs/:id",authenticate,async(req,res)=>{const job=JOBS.get(req.params.id);if(!job)return res.status(404).json({error:{type:"not_found",message:"Job not found."},request_id:req.requestId});res.json(job)});
-app.post("/v1/image",authenticate,requireScope("image"),async(req,res)=>res.status(503).json({error:{type:"provider_not_configured",message:"Image provider adapter is ready but no image provider endpoint/key is configured. Set GEMINI_IMAGE_MODEL or IMAGE_API_URL/provider credentials before use."},request_id:req.requestId}));
-app.post("/v1/video",authenticate,requireScope("video"),async(req,res)=>res.status(503).json({error:{type:"provider_not_configured",message:"Video provider adapter is reserved for a configured VIDEO_API_URL/provider. No video provider is being faked."},request_id:req.requestId}));
+app.get("/v1/capabilities",authenticate,async(req,res)=>res.json({object:"capabilities",api_version:"v1",database:Boolean(pool),providers:[
+  {name:"gemini",configured:Boolean(process.env.GEMINI_API_KEY),models:[GEMINI_MODEL,...GEMINI_FALLBACK_MODELS]},
+  {name:"github",configured:Boolean(process.env.GITHUB_TOKEN)},
+  {name:"image",configured:Boolean(process.env.IMAGE_API_URL)},
+  {name:"video",configured:Boolean(process.env.VIDEO_API_URL)},
+  {name:"search",configured:Boolean(process.env.SEARCH_API_URL)}
+]}));
+async function genericProviderPost(url,key,body){
+  const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json",...(key?{"Authorization":"Bearer "+key}:{})},body:JSON.stringify(body)});
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok){const e=new Error(d?.error?.message||d?.message||("Provider HTTP "+r.status));e.code="provider_error";e.status=r.status;throw e}
+  return d;
+}
+app.post("/v1/image",authenticate,requireScope("image"),async(req,res,next)=>{try{
+  if(!process.env.IMAGE_API_URL)return res.status(503).json({error:{type:"provider_not_configured",message:"IMAGE_API_URL is not configured."},request_id:req.requestId});
+  const d=await genericProviderPost(process.env.IMAGE_API_URL,process.env.IMAGE_API_KEY,{prompt:String(req.body?.prompt||""),model:String(req.body?.model||process.env.GEMINI_IMAGE_MODEL||"image"),size:String(req.body?.size||"1024x1024")});
+  await recordUsage(req);res.json({object:"image.generation",provider:"configured_image_provider",data:d,request_id:req.requestId});
+}catch(err){next(err)}});
+app.post("/v1/video",authenticate,requireScope("video"),async(req,res,next)=>{try{
+  if(!process.env.VIDEO_API_URL)return res.status(503).json({error:{type:"provider_not_configured",message:"VIDEO_API_URL is not configured."},request_id:req.requestId});
+  const d=await genericProviderPost(process.env.VIDEO_API_URL,process.env.VIDEO_API_KEY,{prompt:String(req.body?.prompt||""),model:String(req.body?.model||process.env.VIDEO_MODEL||"video"),duration:Number(req.body?.duration||5),aspect_ratio:String(req.body?.aspect_ratio||"16:9")});
+  await recordUsage(req);res.json({object:"video.generation",provider:"configured_video_provider",data:d,request_id:req.requestId});
+}catch(err){next(err)}});
+app.get("/v1/github/me",authenticate,requireScope("github"),async(req,res,next)=>{try{
+  if(!process.env.GITHUB_TOKEN)return res.status(503).json({error:{type:"provider_not_configured",message:"GITHUB_TOKEN is not configured."},request_id:req.requestId});
+  const r=await fetch("https://api.github.com/user",{headers:{Authorization:"Bearer "+process.env.GITHUB_TOKEN,Accept:"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28","User-Agent":"BHAI-API"}});
+  const d=await r.json();if(!r.ok)return res.status(502).json({error:{type:"provider_error",provider:"github",message:d?.message||("GitHub HTTP "+r.status)},request_id:req.requestId});
+  res.json({object:"github.user",data:{login:d.login,id:d.id,name:d.name,avatar_url:d.avatar_url,html_url:d.html_url}});
+}catch(err){next(err)}});
+app.post("/v1/github/repos",authenticate,requireScope("github"),async(req,res,next)=>{try{
+  if(!process.env.GITHUB_TOKEN)return res.status(503).json({error:{type:"provider_not_configured",message:"GITHUB_TOKEN is not configured."},request_id:req.requestId});
+  const name=String(req.body?.name||"").trim();if(!/^[A-Za-z0-9_.-]{1,100}$/.test(name))return res.status(400).json({error:{type:"invalid_request_error",message:"Valid repository name is required."},request_id:req.requestId});
+  const r=await fetch("https://api.github.com/user/repos",{method:"POST",headers:{Authorization:"Bearer "+process.env.GITHUB_TOKEN,Accept:"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28","User-Agent":"BHAI-API","Content-Type":"application/json"},body:JSON.stringify({name,description:String(req.body?.description||"Created by BHAI API").slice(0,350),private:Boolean(req.body?.private),auto_init:true})});
+  const d=await r.json();if(!r.ok)return res.status(502).json({error:{type:"provider_error",provider:"github",message:d?.message||("GitHub HTTP "+r.status)},request_id:req.requestId});
+  await recordUsage(req);res.status(201).json({object:"github.repository",data:{name:d.name,full_name:d.full_name,private:d.private,default_branch:d.default_branch,url:d.html_url},request_id:req.requestId});
+}catch(err){next(err)}});
 app.get("/v1/github/repos",authenticate,requireScope("github"),async(req,res,next)=>{try{
   if(!process.env.GITHUB_TOKEN)return res.status(503).json({error:{type:"provider_not_configured",message:"GITHUB_TOKEN is not configured."},request_id:req.requestId});
   const r=await fetch("https://api.github.com/user/repos?per_page=100",{headers:{Authorization:"Bearer "+process.env.GITHUB_TOKEN,Accept:"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28","User-Agent":"BHAI-API"}});
   const d=await r.json(); if(!r.ok)return res.status(502).json({error:{type:"provider_error",provider:"github",message:d?.message||("GitHub HTTP "+r.status)},request_id:req.requestId});
   res.json({object:"list",data:d.map(x=>({name:x.name,full_name:x.full_name,private:x.private,default_branch:x.default_branch,url:x.html_url}))});
 }catch(err){next(err)}});
-app.post("/v1/search",authenticate,requireScope("search"),async(req,res)=>res.status(503).json({error:{type:"provider_not_configured",message:"Search provider adapter requires SEARCH_API_URL/provider credentials."},request_id:req.requestId}));
+app.post("/v1/search",authenticate,requireScope("search"),async(req,res,next)=>{try{
+  if(!process.env.SEARCH_API_URL)return res.status(503).json({error:{type:"provider_not_configured",message:"SEARCH_API_URL is not configured."},request_id:req.requestId});
+  const d=await genericProviderPost(process.env.SEARCH_API_URL,process.env.SEARCH_API_KEY,{query:String(req.body?.query||"").trim(),limit:Number(req.body?.limit||10)});
+  await recordUsage(req);res.json({object:"search.results",provider:"configured_search_provider",data:d,request_id:req.requestId});
+}catch(err){next(err)}});
 
 app.post("/v1/chat",authenticate,requireScope("chat"),async(req,res,next)=>{try{const messages=Array.isArray(req.body?.messages)?req.body.messages:[];if(!messages.length)return res.status(400).json({error:{type:"invalid_request_error",message:"messages is required."},request_id:req.requestId});const model=String(req.body?.model||GEMINI_MODEL);const result=await callGemini({messages,model,generationConfig:req.body?.generationConfig});await recordUsage(req);res.json({id:"chat_"+crypto.randomBytes(10).toString("hex"),object:"chat.completion",created:Math.floor(Date.now()/1000),provider:"gemini",model:result.model||model,choices:[{index:0,message:{role:"assistant",content:result.text},finish_reason:result.raw?.candidates?.[0]?.finishReason||"STOP"}],usage:result.raw?.usageMetadata||null,status:"completed",request_id:req.requestId})}catch(err){if(err.code==="invalid_request")return res.status(400).json({error:{type:"invalid_request_error",message:err.message},request_id:req.requestId});if(err.code==="provider_not_configured")return res.status(503).json({error:{type:"provider_not_configured",message:"Gemini provider is not configured on BHAI API."},request_id:req.requestId});if(err.code==="provider_error")return res.status(502).json({error:{type:"provider_error",provider:err.provider,message:err.message},request_id:req.requestId});next(err)}});
+app.use((_req,res)=>res.status(404).json({error:{type:"not_found",message:"Route not found."}}));
 app.use((err,req,res,_next)=>{console.error("BHAI API error:",err);res.status(500).json({error:{type:"internal_error",message:"Internal server error."},request_id:req.requestId})});
 process.on("unhandledRejection",err=>console.error("Unhandled rejection:",err));process.on("uncaughtException",err=>console.error("Uncaught exception:",err));
 const server=app.listen(PORT,HOST,()=>console.log(`BHAI API listening on http://${HOST}:${PORT}`));server.on("error",err=>console.error("HTTP server failed to start:",err));
