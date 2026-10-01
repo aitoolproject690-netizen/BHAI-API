@@ -69,9 +69,13 @@ async function listKeys(){
   catch(e){out.textContent="List failed: "+e.message}
 }
 async function revokeKey(id){if(!confirm("Block/revoke this API key? It will stop working."))return;try{await adminRequest("/v1/keys/"+encodeURIComponent(id),{method:"POST"});await listKeys()}catch(e){alert("Revoke failed: "+e.message)}}
-document.addEventListener("DOMContentLoaded",function(){
-  const key=document.getElementById("key"); if(key) key.value="";
+function clearSensitiveInputs(){
+  const key=document.getElementById("key"); if(key){key.value="";key.setAttribute("autocomplete","off")}
   const admin=document.getElementById("adminKey"); if(admin) admin.value="";
+}
+window.addEventListener("pageshow",clearSensitiveInputs);
+document.addEventListener("DOMContentLoaded",function(){
+  clearSensitiveInputs();
   document.getElementById("sendChat")?.addEventListener("click",chat);
   document.getElementById("clearChat")?.addEventListener("click",clearChat);
   document.getElementById("createKey")?.addEventListener("click",createKey);
