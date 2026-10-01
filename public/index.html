@@ -69,8 +69,8 @@ pre{white-space:pre-wrap;word-break:break-word;background:#070b14;border-radius:
 <input id="key" type="password" autocomplete="off" placeholder="bhai_live_…">
 <label for="msg">Message</label>
 <textarea id="msg">Hello bhai! Reply in Hinglish.</textarea>
-<button class="primary" type="button" onclick="chat()">Send to BHAI API</button>
-<button class="secondary" type="button" onclick="clearChat()">Clear</button>
+<button class="primary" type="button" id="sendChat">Send to BHAI API</button>
+<button class="secondary" type="button" id="clearChat">Clear</button>
 <pre id="chatout">Response will appear here…</pre>
 </section>
 
@@ -84,7 +84,7 @@ Body:
 {"name":"My App","scopes":["chat","coding"]}
 
 Note: without DATABASE_URL, developer keys are memory-only and reset when the service restarts.</pre>
-<button class="secondary" type="button" onclick="copyText('POST /v1/keys')">Copy endpoint</button>
+<button class="secondary" type="button" id="copyKeys">Copy endpoint</button>
 </section>
 
 <section id="docs">
@@ -103,56 +103,13 @@ GET /health</pre>
 
 <section id="health">
 <h2>❤️ Health</h2>
-<button class="primary" type="button" onclick="loadHealth()">Refresh Health</button>
+<button class="primary" type="button" id="refreshHealth">Refresh Health</button>
 <pre id="healthout">Loading…</pre>
 </section>
 </main>
 </div>
 </div>
 
-<script>
-async function loadHealth(){
-  const out=document.getElementById("healthout");
-  try{
-    const r=await fetch("/v1/health",{cache:"no-store"});
-    const d=await r.json();
-    const gemini=document.getElementById("gemini");
-    const db=document.getElementById("db");
-    const status=document.getElementById("status");
-    if(gemini) gemini.textContent=d.gemini_configured?"READY":"OFF";
-    if(db) db.textContent=d.database?"CONNECTED":"NOT CONNECTED";
-    status.textContent=d.ok?"ONLINE":"ERROR";
-    status.className="badge "+(d.ok?"ok":"bad");
-    if(out) out.textContent=JSON.stringify(d,null,2);
-  }catch(e){
-    document.getElementById("status").textContent="OFFLINE";
-    document.getElementById("status").className="badge bad";
-    if(out) out.textContent="Health request failed: "+e.message;
-  }
-}
-async function chat(){
-  const key=document.getElementById("key").value.trim();
-  const msg=document.getElementById("msg").value.trim();
-  const out=document.getElementById("chatout");
-  if(!key){out.textContent="API key required.";return}
-  if(!msg){out.textContent="Message required.";return}
-  out.textContent="Thinking…";
-  try{
-    const r=await fetch("/v1/chat",{
-      method:"POST",
-      headers:{"Content-Type":"application/json","Authorization":"Bearer "+key},
-      body:JSON.stringify({messages:[{role:"user",content:msg}]})
-    });
-    const d=await r.json();
-    out.textContent=JSON.stringify(d,null,2);
-  }catch(e){out.textContent="Connection error: "+e.message}
-}
-function clearChat(){document.getElementById("chatout").textContent="Response will appear here…"}
-async function copyText(t){
-  try{await navigator.clipboard.writeText(t);alert("Copied")}
-  catch(e){alert(t)}
-}
-loadHealth();
-</script>
+<script src="/app.js" defer></script>
 </body>
 </html>
