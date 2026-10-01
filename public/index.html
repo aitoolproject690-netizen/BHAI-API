@@ -1,94 +1,158 @@
 <!doctype html>
-<html lang="en"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>BHAI API</title>
 <style>
-*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#080d18;color:#eef3ff}.wrap{max-width:1100px;margin:auto;padding:16px}
-.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}.logo{font-size:25px;font-weight:800}.small{color:#93a4c5;font-size:13px}.badge{padding:7px 11px;border-radius:99px;background:#18283c;color:#8ee8ae}
-.layout{display:grid;grid-template-columns:240px 1fr;gap:14px}.card{background:#111a2d;border:1px solid #263653;border-radius:16px;padding:14px}.nav{height:max-content}
-.navbtn{display:block;width:100%;padding:13px;margin:5px 0;border:0;border-radius:10px;background:#19243b;color:#dce7ff;text-align:left;font-size:15px;cursor:pointer}.navbtn.active,.navbtn:active{background:#36517e}.navbtn{color:#dce7ff;text-decoration:none;font-size:15px}
-section{display:none}section.active{display:block}h2{margin:0 0 14px}label{display:block;margin:11px 0 5px;color:#aebbd5;font-size:13px}
-input,textarea{width:100%;background:#080f1e;color:#fff;border:1px solid #344563;border-radius:10px;padding:11px;font:inherit}textarea{min-height:120px}
-.primary{background:#4f7cff;color:#fff;border:0;border-radius:10px;padding:11px 16px;font-weight:700;margin-top:10px;cursor:pointer}.secondary{background:#263653;color:#fff;border:0;border-radius:10px;padding:10px 14px;margin:8px 5px 0 0;cursor:pointer}
-pre{white-space:pre-wrap;word-break:break-word;background:#070b14;border-radius:10px;padding:13px;min-height:90px;overflow:auto}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.stat{background:#0c1425;border-radius:12px;padding:14px}.num{font-size:20px;font-weight:800;margin-top:4px}
-.ok{color:#75e6a0}.bad{color:#ff8f8f}@media(max-width:700px){.layout{grid-template-columns:1fr}.nav{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}.navbtn{margin:0;font-size:12px}.stats{grid-template-columns:1fr}}
-</style></head>
-<body><div class="wrap">
-<div class="top"><div><div class="logo">🤖 BHAI API</div><div class="small">AI developer platform</div></div><div id="status" class="badge">Checking…</div></div>
-<div class="layout"><div class="card nav">
-<a class="navbtn active" href="#dashboard">🏠 Dashboard</a>
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#080d18;color:#eef3ff}
+.wrap{max-width:1100px;margin:auto;padding:16px}
+.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+.logo{font-size:25px;font-weight:800}.small{color:#93a4c5;font-size:13px}
+.badge{padding:7px 11px;border-radius:99px;background:#18283c;color:#8ee8ae}
+.layout{display:grid;grid-template-columns:240px 1fr;gap:14px}
+.card{background:#111a2d;border:1px solid #263653;border-radius:16px;padding:14px}
+.nav{height:max-content;position:sticky;top:10px}
+.navbtn{display:block;width:100%;padding:14px;margin:5px 0;border:0;border-radius:10px;background:#19243b;color:#dce7ff;text-align:left;font-size:15px;cursor:pointer;text-decoration:none}
+.navbtn:hover,.navbtn:focus{background:#36517e;outline:2px solid #5b86ff}
+main section{display:none}
+main section:target{display:block}
+main:not(:has(section:target)) #dashboard{display:block}
+h2{margin:0 0 14px}
+label{display:block;margin:11px 0 5px;color:#aebbd5;font-size:13px}
+input,textarea{width:100%;background:#080f1e;color:#fff;border:1px solid #344563;border-radius:10px;padding:11px;font:inherit}
+textarea{min-height:120px}
+.primary,.secondary{display:inline-block;border-radius:10px;padding:11px 16px;font-weight:700;margin-top:10px;cursor:pointer;text-decoration:none}
+.primary{background:#4f7cff;color:#fff;border:0}.secondary{background:#263653;color:#fff;border:0;margin-right:5px}
+pre{white-space:pre-wrap;word-break:break-word;background:#070b14;border-radius:10px;padding:13px;min-height:90px;overflow:auto}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.stat{background:#0c1425;border-radius:12px;padding:14px}.num{font-size:20px;font-weight:800;margin-top:4px}
+.ok{color:#75e6a0}.bad{color:#ff8f8f}
+.notice{padding:12px;border:1px solid #33476a;border-radius:10px;background:#0c1425}
+@media(max-width:700px){.layout{grid-template-columns:1fr}.nav{position:static;display:grid;grid-template-columns:repeat(3,1fr);gap:5px}.navbtn{margin:0;font-size:12px}.stats{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="top">
+<div><div class="logo">🤖 BHAI API</div><div class="small">AI developer platform</div></div>
+<div id="status" class="badge">Checking…</div>
+</header>
+
+<div class="layout">
+<nav class="card nav" aria-label="BHAI API navigation">
+<a class="navbtn" href="#dashboard">🏠 Dashboard</a>
 <a class="navbtn" href="#chat">🤖 AI Chat</a>
 <a class="navbtn" href="#keys">🔑 API Keys</a>
 <a class="navbtn" href="#docs">📚 API Docs</a>
 <a class="navbtn" href="#health">❤️ Health</a>
+</nav>
+
+<main class="card">
+<section id="dashboard">
+<h2>Dashboard</h2>
+<div class="stats">
+<div class="stat">Service<div class="num">BHAI API</div></div>
+<div class="stat">Gemini<div class="num" id="gemini">—</div></div>
+<div class="stat">Database<div class="num" id="db">—</div></div>
 </div>
-<div class="card">
-<section id="dashboard" class="active"><h2>Dashboard</h2><div class="stats">
-<div class="stat">Service<div class="num">BHAI API</div></div><div class="stat">Gemini<div class="num" id="gemini">—</div></div><div class="stat">Database<div class="num" id="db">—</div></div>
-</div><p class="small">API backend is live. Choose a section above.</p><a class="primary" href="#chat" style="display:inline-block;text-decoration:none">Open AI Chat →</a></section>
+<p class="small">Navigation is native HTML — no menu JavaScript is required.</p>
+<a class="primary" href="#chat">Open AI Chat →</a>
+</section>
 
-<section id="chat"><h2>🤖 AI Chat</h2><p class="small">Paste your BHAI API key here. It stays only in this page and is not saved.</p>
-<label>API Key</label><input id="key" type="password" placeholder="bhai_live_…">
-<label>Message</label><textarea id="msg">Hello bhai! Reply in Hinglish.</textarea>
-<button class="primary" onclick="chat()">Send to BHAI API</button><button class="secondary" onclick="clearChat()">Clear</button>
-<pre id="chatout">Response will appear here…</pre></section>
+<section id="chat">
+<h2>🤖 AI Chat</h2>
+<p class="small">Paste your BHAI API key. It is used only for this request and is not saved.</p>
+<label for="key">API Key</label>
+<input id="key" type="password" autocomplete="off" placeholder="bhai_live_…">
+<label for="msg">Message</label>
+<textarea id="msg">Hello bhai! Reply in Hinglish.</textarea>
+<button class="primary" type="button" onclick="chat()">Send to BHAI API</button>
+<button class="secondary" type="button" onclick="clearChat()">Clear</button>
+<pre id="chatout">Response will appear here…</pre>
+</section>
 
-<section id="keys"><h2>🔑 API Keys</h2><p>Keys are managed by the protected API endpoint. This public panel intentionally does not expose the owner/admin secret.</p>
+<section id="keys">
+<h2>🔑 API Keys</h2>
+<div class="notice">Owner/admin key is intentionally never shown in this public page.</div>
 <pre>POST /v1/keys
 x-bhai-admin-key: YOUR_ADMIN_KEY
 
 Body:
 {"name":"My App","scopes":["chat","coding"]}
 
-For production, developer key management will be connected to the database/dashboard.</pre>
-<button class="secondary" onclick="copyText('POST /v1/keys')">Copy endpoint</button></section>
+Note: without DATABASE_URL, developer keys are memory-only and reset when the service restarts.</pre>
+<button class="secondary" type="button" onclick="copyText('POST /v1/keys')">Copy endpoint</button>
+</section>
 
-<section id="docs"><h2>📚 API Docs</h2><h3>Chat</h3><pre>POST /v1/chat
+<section id="docs">
+<h2>📚 API Docs</h2>
+<h3>Chat</h3>
+<pre>POST /v1/chat
 Authorization: Bearer YOUR_API_KEY
 Content-Type: application/json
 
 {"model":"gemini-3.8-flash","messages":[{"role":"user","content":"Hello bhai"}]}</pre>
-<h3>Health</h3><pre>GET /v1/health
-GET /health</pre><a class="secondary" href="/v1/health" target="_blank" style="display:inline-block;text-decoration:none">Open Health JSON</a></section>
+<h3>Health</h3>
+<pre>GET /v1/health
+GET /health</pre>
+<a class="secondary" href="/v1/health" target="_blank" rel="noopener">Open Health JSON</a>
+</section>
 
-<section id="health"><h2>❤️ Health</h2><button class="primary" onclick="loadHealth()">Refresh Health</button><pre id="healthout">Loading…</pre></section>
-</div></div></div>
+<section id="health">
+<h2>❤️ Health</h2>
+<button class="primary" type="button" onclick="loadHealth()">Refresh Health</button>
+<pre id="healthout">Loading…</pre>
+</section>
+</main>
+</div>
+</div>
+
 <script>
-function showTab(name){
-  var id=name;
-  document.querySelectorAll("section").forEach(function(s){s.classList.remove("active")});
-  var el=document.getElementById(id); if(el) el.classList.add("active");
-  document.querySelectorAll(".navbtn").forEach(function(b){b.classList.remove("active")});
-  var a=document.querySelector(".navbtn[href=\"#"+name+"\"]"); if(a) a.classList.add("active");
-  if(name==="health") loadHealth();
-}
-window.addEventListener("hashchange",function(){showTab(location.hash.slice(1)||"dashboard")});
 async function loadHealth(){
-  var out=document.getElementById('healthout');
+  const out=document.getElementById("healthout");
   try{
-    var r=await fetch('/v1/health',{cache:'no-store'}); var d=await r.json();
-    document.getElementById('gemini').textContent=d.gemini_configured?'READY':'OFF';
-    document.getElementById('db').textContent=d.database?'CONNECTED':'NOT CONNECTED';
-    document.getElementById('status').textContent=d.ok?'ONLINE':'ERROR';
-    document.getElementById('status').className='badge '+(d.ok?'ok':'bad');
+    const r=await fetch("/v1/health",{cache:"no-store"});
+    const d=await r.json();
+    const gemini=document.getElementById("gemini");
+    const db=document.getElementById("db");
+    const status=document.getElementById("status");
+    if(gemini) gemini.textContent=d.gemini_configured?"READY":"OFF";
+    if(db) db.textContent=d.database?"CONNECTED":"NOT CONNECTED";
+    status.textContent=d.ok?"ONLINE":"ERROR";
+    status.className="badge "+(d.ok?"ok":"bad");
     if(out) out.textContent=JSON.stringify(d,null,2);
   }catch(e){
-    document.getElementById('status').textContent='OFFLINE';
-    document.getElementById('status').className='badge bad';
-    if(out) out.textContent='Health request failed: '+e.message;
+    document.getElementById("status").textContent="OFFLINE";
+    document.getElementById("status").className="badge bad";
+    if(out) out.textContent="Health request failed: "+e.message;
   }
 }
 async function chat(){
-  var key=document.getElementById('key').value.trim(),msg=document.getElementById('msg').value.trim(),out=document.getElementById('chatout');
-  if(!key){out.textContent='API key required.';return}
-  if(!msg){out.textContent='Message required.';return}
-  out.textContent='Thinking…';
+  const key=document.getElementById("key").value.trim();
+  const msg=document.getElementById("msg").value.trim();
+  const out=document.getElementById("chatout");
+  if(!key){out.textContent="API key required.";return}
+  if(!msg){out.textContent="Message required.";return}
+  out.textContent="Thinking…";
   try{
-    var r=await fetch('/v1/chat',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({messages:[{role:'user',content:msg}]})});
-    var d=await r.json(); out.textContent=JSON.stringify(d,null,2);
-  }catch(e){out.textContent='Connection error: '+e.message}
+    const r=await fetch("/v1/chat",{
+      method:"POST",
+      headers:{"Content-Type":"application/json","Authorization":"Bearer "+key},
+      body:JSON.stringify({messages:[{role:"user",content:msg}]})
+    });
+    const d=await r.json();
+    out.textContent=JSON.stringify(d,null,2);
+  }catch(e){out.textContent="Connection error: "+e.message}
 }
-function clearChat(){document.getElementById('chatout').textContent='Response will appear here…'}
-async function copyText(t){try{await navigator.clipboard.writeText(t);alert('Copied')}catch(e){alert(t)}}
+function clearChat(){document.getElementById("chatout").textContent="Response will appear here…"}
+async function copyText(t){
+  try{await navigator.clipboard.writeText(t);alert("Copied")}
+  catch(e){alert(t)}
+}
 loadHealth();
-</script></body></html>
+</script>
+</body>
+</html>
