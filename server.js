@@ -19,6 +19,7 @@ const IMAGE_PROVIDER_URLS = String(process.env.IMAGE_PROVIDER_URLS || "").split(
 const VIDEO_PROVIDER_URLS = String(process.env.VIDEO_PROVIDER_URLS || "").split(",").map(x=>x.trim()).filter(Boolean);
 const IMAGE_PROVIDER_KEYS = String(process.env.IMAGE_PROVIDER_KEYS || "").split(",").map(x=>x.trim());
 const VIDEO_PROVIDER_KEYS = String(process.env.VIDEO_PROVIDER_KEYS || "").split(",").map(x=>x.trim());
+const PIXAZO_IMAGE_URLS = String(process.env.PIXAZO_IMAGE_URLS || "").split(",").map(x=>x.trim()).filter(Boolean);
 const pool = process.env.DATABASE_URL ? new Pool({connectionString:process.env.DATABASE_URL,ssl:{rejectUnauthorized:false},connectionTimeoutMillis:5000}) : null;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -142,9 +143,8 @@ app.post("/v1/image",authenticate,requireScope("image"),async(req,res,next)=>{tr
   const external=[];
   if(process.env.IMAGE_API_URL)external.push({url:process.env.IMAGE_API_URL,key:process.env.IMAGE_API_KEY||"",name:"configured_image_provider"});
   if(process.env.PIXAZO_API_KEY){
-    external.push({url:"https://gateway.pixazo.ai/flux/text-to-image",key:"",pixazo_key:process.env.PIXAZO_API_KEY,name:"pixazo_flux_free",pixazo:true});
-    external.push({url:"https://gateway.pixazo.ai/sdxl_lightning/getImage/v1/getSDXLImageStream",key:"",pixazo_key:process.env.PIXAZO_API_KEY,name:"pixazo_sdxl_lightning",pixazo_sdxl:true});
-    external.push({url:"https://gateway.pixazo.ai/sd3-5/v1/r-sd-3-5-large",key:"",pixazo_key:process.env.PIXAZO_API_KEY,name:"pixazo_sd3_5",pixazo_sd:true});
+    const pixazoUrls=PIXAZO_IMAGE_URLS.length?PIXAZO_IMAGE_URLS:["https://gateway.pixazo.ai/flux/text-to-image","https://gateway.pixazo.ai/muse-image/v1/text-to-image"];
+    for(const [i,url] of pixazoUrls.entries()) external.push({url,key:"",pixazo_key:process.env.PIXAZO_API_KEY,name:"pixazo_"+(i+1),pixazo:true});
   }
   external.push(...providerList("image"));
   let lastError=null;
