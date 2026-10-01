@@ -14,6 +14,7 @@ const HOST = "0.0.0.0";
 const PREFIX = process.env.BHAI_API_KEY_PREFIX || "bhai_live_";
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
 const GEMINI_FALLBACK_MODELS = String(process.env.GEMINI_FALLBACK_MODELS || "gemini-3.7-flash,gemini-3.5-flash-lite").split(",").map(x=>x.trim()).filter(Boolean);
+const IMAGE_FALLBACK_MODELS = String(process.env.IMAGE_FALLBACK_MODELS || "gemini-2.5-flash-image").split(",").map(x=>x.trim()).filter(Boolean);
 const pool = process.env.DATABASE_URL ? new Pool({connectionString:process.env.DATABASE_URL,ssl:{rejectUnauthorized:false},connectionTimeoutMillis:5000}) : null;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -89,6 +90,8 @@ app.get("/v1/capabilities",authenticate,async(req,res)=>res.json({object:"capabi
   {name:"video",configured:Boolean(process.env.VIDEO_API_URL)},
   {name:"search",configured:Boolean(process.env.SEARCH_API_URL)}
 ]}));
+async function generateGeminiImage({prompt,model,size}){if(!process.env.GEMINI_API_KEY){const e=new Error("GEMINI_API_KEY is not configured.");e.code="provider_not_configured";throw e}const models=[...new Set([model,...IMAGE_FALLBACK_MODELS].filter(Boolean))];let lastError=null;for(const candidateModel of models){try{const response=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(candidateModel)}:generateContent`,{method:"POST",headers:{"Content-Type":"application/json","x-goog-api-key":process.env.GEMINI_API_KEY},body:JSON.stringify({contents:[{role:"user",parts:[{text:prompt}]}],generationConfig:{responseModalities:["TEXT","IMAGE"],imageConfig:{imageSize:size}}})});const data=await response.json().catch(()=>({}));if(!response.ok){const e=new Error(data?.error?.message||`Gemini image HTTP ${response.status}`);e.code="provider_error";e.status=response.status;e.provider="gemini";e.model=candidateModel;lastError=e;if([400,401,403,404,408,409,429,500,502,503,504].includes(response.status))continue;throw e}const parts=(data?.candidates||[]).flatMap(c=>c?.content?.parts||[]);const images=parts.filter(p=>p?.inlineData?.data).map(p=>({mime_type:p.inlineData.mimeType||"image/png",base64:p.inlineData.data}));const text=parts.map(p=>p?.text).filter(Boolean).join("\n");if(!images.length){const e=new Error("Gemini image provider returned no image data.");e.code="provider_error";e.status=502;e.provider="gemini";e.model=candidateModel;lastError=e;continue}return{provider:"gemini",model:candidateModel,images,text,raw:data}}catch(err){lastError=err;if(err.code!=="provider_error")throw err}}throw lastError||new Error("All Gemini image models failed.")}
+
 async function genericProviderPost(url,key,body){
   const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json",...(key?{"Authorization":"Bearer "+key}:{})},body:JSON.stringify(body)});
   const d=await r.json().catch(()=>({}));
@@ -96,10 +99,19 @@ async function genericProviderPost(url,key,body){
   return d;
 }
 app.post("/v1/image",authenticate,requireScope("image"),async(req,res,next)=>{try{
-  if(!process.env.IMAGE_API_URL)return res.status(503).json({error:{type:"provider_not_configured",message:"IMAGE_API_URL is not configured."},request_id:req.requestId});
-  const d=await genericProviderPost(process.env.IMAGE_API_URL,process.env.IMAGE_API_KEY,{prompt:String(req.body?.prompt||""),model:String(req.body?.model||process.env.GEMINI_IMAGE_MODEL||"image"),size:String(req.body?.size||"1024x1024")});
-  await recordUsage(req);res.json({object:"image.generation",provider:"configured_image_provider",data:d,request_id:req.requestId});
-}catch(err){next(err)}});
+  const prompt=String(req.body?.prompt||"").trim();if(!prompt)return res.status(400).json({error:{type:"invalid_request_error",message:"prompt is required."},request_id:req.requestId});
+  const size=String(req.body?.size||"1024x1024");
+  if(process.env.IMAGE_API_URL){
+    const d=await genericProviderPost(process.env.IMAGE_API_URL,process.env.IMAGE_API_KEY,{prompt,model:String(req.body?.model||process.env.IMAGE_MODEL||"image"),size});
+    await recordUsage(req);return res.json({object:"image.generation",provider:"configured_image_provider",data:d,status:"completed",request_id:req.requestId});
+  }
+  if(process.env.GEMINI_API_KEY){
+    const result=await generateGeminiImage({prompt,model:String(req.body?.model||process.env.GEMINI_IMAGE_MODEL||IMAGE_FALLBACK_MODELS[0]),size});
+    await recordUsage(req);
+    return res.json({object:"image.generation",provider:result.provider,model:result.model,data:result.images,text:result.text||null,status:"completed",request_id:req.requestId});
+  }
+  return res.status(503).json({error:{type:"provider_not_configured",message:"No image provider is configured."},request_id:req.requestId});
+}catch(err){if(err.code==="provider_not_configured")return res.status(503).json({error:{type:"provider_not_configured",message:err.message},request_id:req.requestId});if(err.code==="provider_error")return res.status(502).json({error:{type:"provider_error",provider:err.provider||"image",message:err.message},request_id:req.requestId});next(err)}});
 app.post("/v1/video",authenticate,requireScope("video"),async(req,res,next)=>{try{
   if(!process.env.VIDEO_API_URL)return res.status(503).json({error:{type:"provider_not_configured",message:"VIDEO_API_URL is not configured."},request_id:req.requestId});
   const d=await genericProviderPost(process.env.VIDEO_API_URL,process.env.VIDEO_API_KEY,{prompt:String(req.body?.prompt||""),model:String(req.body?.model||process.env.VIDEO_MODEL||"video"),duration:Number(req.body?.duration||5),aspect_ratio:String(req.body?.aspect_ratio||"16:9")});
