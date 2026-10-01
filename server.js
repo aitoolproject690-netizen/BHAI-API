@@ -141,14 +141,17 @@ app.post("/v1/image",authenticate,requireScope("image"),async(req,res,next)=>{tr
   const size=String(req.body?.size||"1024x1024");
   const external=[];
   if(process.env.IMAGE_API_URL)external.push({url:process.env.IMAGE_API_URL,key:process.env.IMAGE_API_KEY||"",name:"configured_image_provider"});
-  if(process.env.PIXAZO_API_KEY)external.push({url:"https://gateway.pixazo.ai/flux/text-to-image",key:"",pixazo_key:process.env.PIXAZO_API_KEY,name:"pixazo_flux_schnell",pixazo:true});
+  if(process.env.PIXAZO_API_KEY){
+    external.push({url:"https://gateway.pixazo.ai/flux/text-to-image",key:"",pixazo_key:process.env.PIXAZO_API_KEY,name:"pixazo_flux_schnell",pixazo:true});
+    external.push({url:"https://gateway.pixazo.ai/sd3-5/v1/r-sd-3-5-large",key:"",pixazo_key:process.env.PIXAZO_API_KEY,name:"pixazo_sd3_5",pixazo_sd:true});
+  }
   external.push(...providerList("image"));
   let lastError=null;
   const attempts=[];
   for(const p of external){
     try{
-      const body=p.pixazo?{prompt}:{prompt,model:String(req.body?.model||process.env.IMAGE_MODEL||"image"),size};
-      const headers=p.pixazo?{"Ocp-Apim-Subscription-Key":p.pixazo_key,"Cache-Control":"no-cache"}:{};
+      const body=p.pixazo_sd?{prompt,aspect_ratio:"1:1",output_format:"png",output_quality:90}:{p.pixazo?{prompt}:{prompt,model:String(req.body?.model||process.env.IMAGE_MODEL||"image"),size};
+      const headers=(p.pixazo||p.pixazo_sd)?{"Ocp-Apim-Subscription-Key":p.pixazo_key,"Cache-Control":"no-cache"}:{};
       const d=await genericProviderPost(p.url,p.key,body,headers);
       await recordUsage(req);return res.json({object:"image.generation",provider:p.name,data:d,status:d?.status||"completed",request_id:req.requestId});
     }catch(err){
@@ -157,13 +160,13 @@ app.post("/v1/image",authenticate,requireScope("image"),async(req,res,next)=>{tr
       if(!providerFailedStatus(err.status))break;
     }
   }
-  if(process.env.GEMINI_API_KEY){
+  if(process.env.GEMINI_API_KEY && String(process.env.IMAGE_ALLOW_GEMINI_FALLBACK||"false").toLowerCase()==="true"){
     try{
       const result=await generateGeminiImage({prompt,model:String(req.body?.model||process.env.GEMINI_IMAGE_MODEL||IMAGE_FALLBACK_MODELS[0]||"gemini-3.1-flash-image").replace(/^gemini-image$/,"gemini-3.1-flash-image"),size});
       await recordUsage(req);return res.json({object:"image.generation",provider:result.provider,model:result.model,data:result.images,text:result.text||null,status:"completed",request_id:req.requestId});
     }catch(err){lastError=err;attempts.push({provider:"gemini",status:err?.status||null,message:String(err?.message||err),model:err?.model||null});}
   }
-  if(lastError){recordError(req,lastError,502);return res.status(502).json({error:{type:"provider_error",provider:lastError.provider||"image",message:lastError.message,attempts},request_id:req.requestId});}
+  if(lastError){recordError(req,lastError,502);return res.status(502).json({error:{type:"provider_error",provider:lastError.provider||"image_router",message:lastError.message,attempts},request_id:req.requestId});}
   return res.status(503).json({error:{type:"provider_not_configured",message:"No image provider is configured. Add PIXAZO_API_KEY or IMAGE_API_URL(S)."},request_id:req.requestId});
 }catch(err){recordError(req,err,500);next(err)}});
 app.post("/v1/video",authenticate,requireScope("video"),async(req,res,next)=>{try{
