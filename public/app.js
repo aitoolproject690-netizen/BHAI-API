@@ -1,116 +1,33 @@
+const $=id=>document.getElementById(id);
+function esc(s){return String(s??"").replace(/[&<>'"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]))}
+function key(){return ($("key")?.value||document.querySelector(".shared-key")?.value||"").trim()}
+function headers(k=key()){return {"Content-Type":"application/json","Authorization":"Bearer "+k}}
+async function api(path,opts={}){const r=await fetch(path,opts);const d=await r.json().catch(()=>({}));if(!r.ok){const e=new Error(d?.error?.message||("HTTP "+r.status));e.data=d;e.status=r.status;throw e}return d}
+function show(id,d){const el=$(id);if(el)el.textContent=typeof d==="string"?d:JSON.stringify(d,null,2)}
 async function loadHealth(){
-  const out=document.getElementById("healthout");
-  try{
-    const r=await fetch("/v1/health",{cache:"no-store"}); const d=await r.json();
-    const gemini=document.getElementById("gemini"), db=document.getElementById("db"), status=document.getElementById("status");
-    if(gemini) gemini.textContent=d.gemini_configured?"READY":"OFF";
-    if(db) db.textContent=d.database?"CONNECTED":"NOT CONNECTED";
-    status.textContent=d.ok?"ONLINE":"ERROR"; status.className="badge "+(d.ok?"ok":"bad");
-    if(out) out.textContent=JSON.stringify(d,null,2);
-  }catch(e){
-    const status=document.getElementById("status"); status.textContent="OFFLINE"; status.className="badge bad";
-    if(out) out.textContent="Health request failed: "+e.message;
-  }
+ try{const d=await api("/v1/health",{cache:"no-store"});$("gemini").textContent=d.gemini_configured?"READY":"OFF";$("db").textContent=d.database?"CONNECTED":"OFF";$("status").textContent=d.ok?"ONLINE":"ERROR";$("status").className="badge "+(d.ok?"ok":"bad");show("healthout",d);loadCapabilities()}catch(e){$("status").textContent="OFFLINE";$("status").className="badge bad";show("healthout","Health error: "+e.message)}
 }
-async function chat(){
-  const key=document.getElementById("key").value.trim(), msg=document.getElementById("msg").value.trim(), out=document.getElementById("chatout");
-  if(!key){out.textContent="API key required.";return} if(!msg){out.textContent="Message required.";return}
-  out.textContent="Thinking…";
-  try{
-    const r=await fetch("/v1/chat",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+key},body:JSON.stringify({messages:[{role:"user",content:msg}]})});
-    out.textContent=JSON.stringify(await r.json(),null,2);
-  }catch(e){out.textContent="Connection error: "+e.message}
+async function loadCapabilities(){
+ try{const k=key();if(!k)return;const d=await api("/v1/capabilities",{headers:headers(k)});const box=$("capabilities");if(box)box.innerHTML=(d.providers||[]).map(x=>'<div class="tool"><b>'+esc(x.name)+'</b><div class="small">'+(x.configured?'<span class="ok">● configured</span>':'<span class="bad">● not configured</span>')+'</div></div>').join("")}catch{}
 }
-async function verifyKey(raw){
-  const key=String(raw||"").trim(), out=document.getElementById("keyout");
-  if(!key){out.textContent="API key missing.";return}
-  out.textContent="Testing this exact API key…";
-  try{
-    const r=await fetch("/v1/chat",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+key},body:JSON.stringify({messages:[{role:"user",content:"Reply only: BHAI API key OK"}]})});
-    const d=await r.json();
-    if(r.ok){
-      document.getElementById("key").value=key;
-      out.innerHTML='<b class="ok">✅ API key verified.</b><pre>'+escapeHtml(JSON.stringify(d,null,2))+'</pre>';
-    }else{
-      out.innerHTML='<b class="bad">❌ This exact key was rejected.</b><pre>'+escapeHtml(JSON.stringify(d,null,2))+'</pre>';
-    }
-  }catch(e){out.textContent="Verification failed: "+e.message}
-}
-function clearChat(){document.getElementById("chatout").textContent="Response will appear here…";const key=document.getElementById("key");if(key)key.value=""}
-async function copyText(t){
-  const value=String(t??"").trim();
-  if(!value)return false;
-  const input=document.getElementById("newApiKeyValue");
-  if(input && input.value.trim()===value){
-    input.focus();
-    input.select();
-    input.setSelectionRange(0,input.value.length);
-  }
-  try{
-    if(navigator.clipboard && window.isSecureContext){
-      await navigator.clipboard.writeText(value);
-    }else{
-      const ta=document.createElement("textarea");
-      ta.value=value;ta.setAttribute("readonly","");
-      ta.style.position="fixed";ta.style.left="-9999px";
-      document.body.appendChild(ta);ta.focus();ta.select();ta.setSelectionRange(0,value.length);
-      const ok=document.execCommand("copy");
-      ta.remove();
-      if(!ok)throw new Error("copy command failed");
-    }
-    alert("✅ Full API key copied");
-    return true;
-  }catch(e){
-    if(input && input.value.trim()===value){
-      input.focus();input.select();input.setSelectionRange(0,value.length);
-      alert("Key selected — tap Copy from your phone's menu.");
-      return false;
-    }
-    prompt("Copy this FULL API key:",value);
-    return false;
-  }
-}
-function renderKeyHistory(items){
-  const box=document.getElementById("keyhistory"); if(!box)return;
-  if(!items.length){box.innerHTML='<div class="notice">No developer keys yet.</div>';return}
-  box.innerHTML=items.map(k=>{
-    const revoked=k.status!=="active";
-    return '<div class="keyrow"><div><b>'+escapeHtml(k.name||"Unnamed key")+'</b><div class="small">'+escapeHtml(k.key_prefix||"")+" • "+escapeHtml(k.status||"unknown")+" • usage "+Number(k.usage_count||0)+'</div></div><button class="secondary revoke-key" data-id="'+escapeAttr(k.id)+'" '+(revoked?'disabled':'')+'>'+ (revoked?'Revoked':'Block / Revoke')+'</button></div>';
-  }).join("");
-  box.querySelectorAll(".revoke-key").forEach(b=>b.addEventListener("click",()=>revokeKey(b.dataset.id)));
-}
-function escapeHtml(s){return String(s).replace(/[&<>'"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]))}
-function escapeAttr(s){return escapeHtml(s)}
-async function adminRequest(path,options={}){const key=document.getElementById("adminKey").value.trim();if(!key)throw new Error("Admin key required.");options.headers={...(options.headers||{}),"x-bhai-admin-key":key,"Content-Type":"application/json"};const r=await fetch(path,options);const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d?.error?.message||("HTTP "+r.status));return d}
-async function createKey(){
-  const out=document.getElementById("keyout"); out.textContent="Creating…";
-  try{
-    const scopes=[...document.querySelectorAll(".scope:checked")].map(x=>x.value);
-    const d=await adminRequest("/v1/keys",{method:"POST",body:JSON.stringify({name:document.getElementById("keyName").value.trim()||"My App",scopes})});
-    out.innerHTML='<b>New API key created — copy it now. It is shown only once.</b><label for="newApiKeyValue">Full API Key</label><input id="newApiKeyValue" class="full-key" type="text" readonly value="'+escapeAttr(d.key)+'" spellcheck="false" autocapitalize="off" autocomplete="off"><button class="primary" id="copyNewKey" type="button">📋 Copy Full API Key</button> <button class="secondary" id="verifyNewKey" type="button">✅ Test This Key</button><pre>'+escapeHtml(JSON.stringify({...d,key:"(shown in the full-key field above)"},null,2))+'</pre>';
-    document.getElementById("copyNewKey").addEventListener("click",()=>copyText(d.key));
-    document.getElementById("verifyNewKey").addEventListener("click",()=>verifyKey(d.key));
-    document.getElementById("key").value=d.key;
-    await listKeys();
-  }catch(e){out.textContent="Create failed: "+e.message}
-}
-async function listKeys(){
-  const out=document.getElementById("keyout"); out.textContent="Loading key history…";
-  try{const d=await adminRequest("/v1/keys");renderKeyHistory(d.data||[]);out.textContent="Key history loaded. Prefix is NOT the secret API key."}
-  catch(e){out.textContent="List failed: "+e.message}
-}
-async function revokeKey(id){if(!confirm("Block/revoke this API key? It will stop working."))return;try{await adminRequest("/v1/keys/"+encodeURIComponent(id),{method:"POST"});await listKeys()}catch(e){alert("Revoke failed: "+e.message)}}
-function clearSensitiveInputs(){
-  const key=document.getElementById("key"); if(key){key.value="";key.setAttribute("autocomplete","off")}
-  const admin=document.getElementById("adminKey"); if(admin) admin.value="";
-}
-window.addEventListener("pageshow",clearSensitiveInputs);
-document.addEventListener("DOMContentLoaded",function(){
-  clearSensitiveInputs();
-  document.getElementById("sendChat")?.addEventListener("click",chat);
-  document.getElementById("clearChat")?.addEventListener("click",clearChat);
-  document.getElementById("createKey")?.addEventListener("click",createKey);
-  document.getElementById("listKeys")?.addEventListener("click",listKeys);
-  document.getElementById("refreshHealth")?.addEventListener("click",loadHealth);
-  loadHealth();
-});
+async function runChat(){const k=key(),m=$("msg").value.trim();if(!k)return show("chatout","API key required.");if(!m)return show("chatout","Message required.");show("chatout","Thinking…");try{show("chatout",await api("/v1/chat",{method:"POST",headers:headers(k),body:JSON.stringify({messages:[{role:"user",content:m}]})}))}catch(e){show("chatout",{error:e.message,...(e.data||{})})}}
+async function runCoding(){const k=key(),p=$("codingPrompt").value.trim();show("codingout","Running…");try{show("codingout",await api("/v1/coding",{method:"POST",headers:headers(k),body:JSON.stringify({prompt:p})}))}catch(e){show("codingout",{error:e.message,...(e.data||{})})}}
+async function runImage(){const k=key(),p=$("imagePrompt").value.trim();show("imageout","Generating image…");$("imagePreview").innerHTML="";try{const d=await api("/v1/image",{method:"POST",headers:headers(k),body:JSON.stringify({prompt:p,size:$("imageSize").value})});show("imageout",{object:d.object,provider:d.provider,model:d.model,status:d.status,request_id:d.request_id,text:d.text||null});const img=d?.data?.[0];if(img?.base64){const im=document.createElement("img");im.src="data:"+(img.mime_type||"image/png")+";base64,"+img.base64;im.style="max-width:100%;border-radius:12px;margin-top:12px";$("imagePreview").appendChild(im)}}catch(e){show("imageout",{error:e.message,...(e.data||{})})}}
+async function runVideo(){const k=key();show("videoout","Submitting video job…");try{show("videoout",await api("/v1/video",{method:"POST",headers:headers(k),body:JSON.stringify({prompt:$("videoPrompt").value.trim(),duration:Number($("videoDuration").value),aspect_ratio:$("videoAspect").value})}))}catch(e){show("videoout",{error:e.message,...(e.data||{})})}}
+async function runAgent(){const k=key();show("agentout","Running mission…");try{show("agentout",await api("/v1/agent",{method:"POST",headers:headers(k),body:JSON.stringify({task:$("agentTask").value.trim()})}))}catch(e){show("agentout",{error:e.message,...(e.data||{})})}}
+async function githubMe(){try{show("githubout",await api("/v1/github/me",{headers:headers()}));$("githubStatus").textContent="READY"}catch(e){show("githubout",{error:e.message,...(e.data||{})});$("githubStatus").textContent="ERROR"}}
+async function createRepo(){try{show("githubout",await api("/v1/github/repos",{method:"POST",headers:headers(),body:JSON.stringify({name:$("repoName").value.trim()})}))}catch(e){show("githubout",{error:e.message,...(e.data||{})})}}
+async function runSearch(){try{show("searchout",await api("/v1/search",{method:"POST",headers:headers(),body:JSON.stringify({query:$("searchQuery").value.trim(),limit:10})}))}catch(e){show("searchout",{error:e.message,...(e.data||{})})}}
+async function runVision(){try{show("visionout",await api("/v1/vision",{method:"POST",headers:headers(),body:JSON.stringify({prompt:$("visionPrompt").value.trim(),image_base64:$("visionImage").value.trim()})}))}catch(e){show("visionout",{error:e.message,...(e.data||{})})}}
+async function runVoice(){try{show("voiceout",await api("/v1/voice",{method:"POST",headers:headers(),body:JSON.stringify({text:$("voiceInput").value.trim()})}))}catch(e){show("voiceout",{error:e.message,...(e.data||{})})}}
+async function runFiles(){try{const body=JSON.parse($("fileBody").value);show("filesout",await api("/v1/files",{method:"POST",headers:headers(),body:JSON.stringify(body)}))}catch(e){show("filesout",{error:e.message})}}
+function clearSensitive(){if($("key"))$("key").value="";if($("adminKey"))$("adminKey").value="";if($("errorAdminKey"))$("errorAdminKey").value=""}
+async function copyText(v){v=String(v||"").trim();if(!v)return;try{await navigator.clipboard.writeText(v);alert("✅ Full API key copied")}catch{prompt("Copy full API key:",v)}}
+async function adminReq(path,opts={}){const k=$("adminKey").value.trim();if(!k)throw new Error("Admin key required.");opts.headers={...(opts.headers||{}),"x-bhai-admin-key":k,"Content-Type":"application/json"};return api(path,opts)}
+function renderKeys(items){const box=$("keyhistory");box.innerHTML=(items||[]).map(k=>'<div class="keyrow"><div><b>'+esc(k.name)+'</b><div class="small">'+esc(k.key_prefix||"")+" • "+esc(k.status)+" • usage "+Number(k.usage_count||0)+'</div></div><button class="secondary revoke-key" data-id="'+esc(k.id)+'" '+(k.status!=="active"?"disabled":"")+'> '+(k.status==="active"?"Block / Revoke":"Revoked")+'</button></div>').join("")||"No keys.";box.querySelectorAll(".revoke-key").forEach(b=>b.onclick=()=>revokeKey(b.dataset.id))}
+async function createKey(){show("keyout","Creating…");try{const scopes=[...document.querySelectorAll(".scope:checked")].map(x=>x.value);const d=await adminReq("/v1/keys",{method:"POST",body:JSON.stringify({name:$("keyName").value.trim()||"My App",scopes})});$("key").value=d.key;show("keyout","NEW FULL KEY (copy now):\n"+d.key+"\n\nIt is shown once. Keep it secret.");await listKeys();loadCapabilities()}catch(e){show("keyout","Create failed: "+e.message)}}
+async function listKeys(){try{const d=await adminReq("/v1/keys");renderKeys(d.data||[])}catch(e){show("keyout","List failed: "+e.message)}}
+async function revokeKey(id){if(!confirm("Block/revoke this API key?"))return;try{await adminReq("/v1/keys/"+encodeURIComponent(id),{method:"POST"});await listKeys()}catch(e){alert(e.message)}}
+async function loadErrors(){const k=$("errorAdminKey").value.trim();if(!k)return show("errorsout","Admin key required.");try{show("errorsout",await api("/v1/errors",{headers:{"x-bhai-admin-key":k}}))}catch(e){show("errorsout",{error:e.message,...(e.data||{})})}}
+document.addEventListener("DOMContentLoaded",()=>{clearSensitive();$("sendChat")?.addEventListener("click",runChat);$("clearChat")?.addEventListener("click",()=>show("chatout","Response will appear here…"));$("runCoding")?.addEventListener("click",runCoding);$("runImage")?.addEventListener("click",runImage);$("runVideo")?.addEventListener("click",runVideo);$("runAgent")?.addEventListener("click",runAgent);$("githubMe")?.addEventListener("click",githubMe);$("createRepo")?.addEventListener("click",createRepo);$("runSearch")?.addEventListener("click",runSearch);$("runVision")?.addEventListener("click",runVision);$("runVoice")?.addEventListener("click",runVoice);$("runFiles")?.addEventListener("click",runFiles);$("createKey")?.addEventListener("click",createKey);$("listKeys")?.addEventListener("click",listKeys);$("loadErrors")?.addEventListener("click",loadErrors);$("refreshHealth")?.addEventListener("click",loadHealth);loadHealth()});
+window.addEventListener("pageshow",clearSensitive);
