@@ -27,7 +27,7 @@ app.use(express.static(path.join(__dirname,"public")));
 function requestId(){return "req_"+crypto.randomBytes(10).toString("hex")}
 app.use((req,res,next)=>{const id=req.headers["x-request-id"]||requestId();res.setHeader("x-request-id",id);req.requestId=id;next()});
 const memoryKeys=new Map();
-const ALLOWED_SCOPES=new Set(["chat","coding","github","image","video","files","search","agent"]);
+const ALLOWED_SCOPES=new Set(["chat","coding","github","image","video","files","search","agent","vision","voice"]);
 
 async function initDb(){if(!pool)return;await pool.query(`
 CREATE TABLE IF NOT EXISTS bhai_api_keys(id BIGSERIAL PRIMARY KEY,name TEXT NOT NULL,key_prefix TEXT NOT NULL,key_hash TEXT NOT NULL UNIQUE,scopes JSONB NOT NULL DEFAULT '[\"chat\"]'::jsonb,status TEXT NOT NULL DEFAULT 'active',usage_count BIGINT NOT NULL DEFAULT 0,last_used_at TIMESTAMPTZ,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),revoked_at TIMESTAMPTZ);
@@ -55,6 +55,9 @@ app.get("/v1/usage",authenticate,async(req,res,next)=>{try{if(pool&&req.apiKey?.
 
 // ---- Unified capability layer ----
 const JOBS=new Map();
+const ERRORS=[];
+const ERROR_TTL_MS=24*60*60*1000;
+function recordError(req,err,status=500){const item={request_id:req?.requestId||null,type:err?.code||"internal_error",message:String(err?.message||err),status,provider:err?.provider||null,path:req?.path||null,method:req?.method||null,timestamp:new Date().toISOString()};ERRORS.unshift(item);if(ERRORS.length>200)ERRORS.length=200;setTimeout(()=>{const i=ERRORS.indexOf(item);if(i>=0)ERRORS.splice(i,1)},ERROR_TTL_MS).unref?.();return item;}
 const JOB_TTL_MS=24*60*60*1000;
 function makeJob(type,input){const id="job_"+crypto.randomBytes(10).toString("hex");const job={id,type,status:"queued",created_at:new Date().toISOString(),input};JOBS.set(id,job);setTimeout(()=>JOBS.delete(id),JOB_TTL_MS).unref?.();return job}
 function capability(name,configured,details={}){return {name,configured,...details}}
@@ -68,7 +71,10 @@ app.get("/v1/providers",authenticate,async(req,res)=>res.json({object:"providers
   capability("github",Boolean(process.env.GITHUB_TOKEN)),
   capability("image",Boolean(process.env.GEMINI_API_KEY||process.env.IMAGE_API_URL)),
   capability("video",Boolean(process.env.VIDEO_API_URL)),
-  capability("search",Boolean(process.env.SEARCH_API_URL))
+  capability("search",Boolean(process.env.SEARCH_API_URL)),
+  capability("files",Boolean(process.env.FILES_API_URL)),
+  capability("vision",Boolean(process.env.VISION_API_URL||process.env.GEMINI_API_KEY)),
+  capability("voice",Boolean(process.env.VOICE_API_URL))
 ]}));
 app.post("/v1/coding",authenticate,requireScope("coding"),async(req,res,next)=>{try{
   const prompt=String(req.body?.prompt||req.body?.message||"").trim(); if(!prompt)return res.status(400).json({error:{type:"invalid_request_error",message:"prompt is required."},request_id:req.requestId});
@@ -83,12 +89,16 @@ app.post("/v1/agent",authenticate,requireScope("agent"),async(req,res,next)=>{tr
   res.json({object:"agent.run",job});
 }catch(err){next(err)}});
 app.get("/v1/jobs/:id",authenticate,async(req,res)=>{const job=JOBS.get(req.params.id);if(!job)return res.status(404).json({error:{type:"not_found",message:"Job not found."},request_id:req.requestId});res.json(job)});
+app.get("/v1/errors",async(req,res)=>{const admin=req.headers["x-bhai-admin-key"];if(!process.env.BHAI_ADMIN_KEY||admin!==process.env.BHAI_ADMIN_KEY)return res.status(401).json({error:{type:"authentication_error",message:"Admin key required."},request_id:req.requestId});res.json({object:"error_log",data:ERRORS.slice(0,100)})});
 app.get("/v1/capabilities",authenticate,async(req,res)=>res.json({object:"capabilities",api_version:"v1",database:Boolean(pool),providers:[
   {name:"gemini",configured:Boolean(process.env.GEMINI_API_KEY),models:[GEMINI_MODEL,...GEMINI_FALLBACK_MODELS]},
   {name:"github",configured:Boolean(process.env.GITHUB_TOKEN)},
   {name:"image",configured:Boolean(process.env.IMAGE_API_URL)},
   {name:"video",configured:Boolean(process.env.VIDEO_API_URL)},
-  {name:"search",configured:Boolean(process.env.SEARCH_API_URL)}
+  {name:"search",configured:Boolean(process.env.SEARCH_API_URL)},
+  {name:"files",configured:Boolean(process.env.FILES_API_URL)},
+  {name:"vision",configured:Boolean(process.env.VISION_API_URL||process.env.GEMINI_API_KEY)},
+  {name:"voice",configured:Boolean(process.env.VOICE_API_URL)}
 ]}));
 async function generateGeminiImage({prompt,model,size}){if(!process.env.GEMINI_API_KEY){const e=new Error("GEMINI_API_KEY is not configured.");e.code="provider_not_configured";throw e}const models=[...new Set([model,...IMAGE_FALLBACK_MODELS].filter(Boolean))];let lastError=null;for(const candidateModel of models){try{const response=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(candidateModel)}:generateContent`,{method:"POST",headers:{"Content-Type":"application/json","x-goog-api-key":process.env.GEMINI_API_KEY},body:JSON.stringify({contents:[{role:"user",parts:[{text:prompt}]}],generationConfig:{responseModalities:["TEXT","IMAGE"],imageConfig:{imageSize:size}}})});const data=await response.json().catch(()=>({}));if(!response.ok){const e=new Error(data?.error?.message||`Gemini image HTTP ${response.status}`);e.code="provider_error";e.status=response.status;e.provider="gemini";e.model=candidateModel;lastError=e;if([400,401,403,404,408,409,429,500,502,503,504].includes(response.status))continue;throw e}const parts=(data?.candidates||[]).flatMap(c=>c?.content?.parts||[]);const images=parts.filter(p=>p?.inlineData?.data).map(p=>({mime_type:p.inlineData.mimeType||"image/png",base64:p.inlineData.data}));const text=parts.map(p=>p?.text).filter(Boolean).join("\n");if(!images.length){const e=new Error("Gemini image provider returned no image data.");e.code="provider_error";e.status=502;e.provider="gemini";e.model=candidateModel;lastError=e;continue}return{provider:"gemini",model:candidateModel,images,text,raw:data}}catch(err){lastError=err;if(err.code!=="provider_error")throw err}}throw lastError||new Error("All Gemini image models failed.")}
 
@@ -140,11 +150,26 @@ app.post("/v1/search",authenticate,requireScope("search"),async(req,res,next)=>{
   if(!process.env.SEARCH_API_URL)return res.status(503).json({error:{type:"provider_not_configured",message:"SEARCH_API_URL is not configured."},request_id:req.requestId});
   const d=await genericProviderPost(process.env.SEARCH_API_URL,process.env.SEARCH_API_KEY,{query:String(req.body?.query||"").trim(),limit:Number(req.body?.limit||10)});
   await recordUsage(req);res.json({object:"search.results",provider:"configured_search_provider",data:d,request_id:req.requestId});
-}catch(err){next(err)}});
+}catch(err){recordError(req,err,502);next(err)}});
+app.post("/v1/vision",authenticate,requireScope("vision"),async(req,res,next)=>{try{
+  const prompt=String(req.body?.prompt||"Describe/analyze this image.").trim(); const image=String(req.body?.image_base64||"").trim();
+  if(!image)return res.status(400).json({error:{type:"invalid_request_error",message:"image_base64 is required."},request_id:req.requestId});
+  if(!process.env.GEMINI_API_KEY&&!process.env.VISION_API_URL)return res.status(503).json({error:{type:"provider_not_configured",message:"No vision provider is configured."},request_id:req.requestId});
+  if(process.env.VISION_API_URL){const d=await genericProviderPost(process.env.VISION_API_URL,process.env.VISION_API_KEY,{prompt,image_base64:image});await recordUsage(req);return res.json({object:"vision.completion",provider:"configured_vision_provider",data:d,status:"completed",request_id:req.requestId});}
+  const result=await callGemini({messages:[{role:"user",content:prompt}],model:String(req.body?.model||GEMINI_MODEL)});await recordUsage(req);res.json({object:"vision.completion",provider:"gemini",model:result.model,content:result.text,status:"completed",request_id:req.requestId});
+}catch(err){recordError(req,err,502);next(err)}});
+app.post("/v1/files",authenticate,requireScope("files"),async(req,res,next)=>{try{
+  if(!process.env.FILES_API_URL)return res.status(503).json({error:{type:"provider_not_configured",message:"FILES_API_URL is not configured."},request_id:req.requestId});
+  const d=await genericProviderPost(process.env.FILES_API_URL,process.env.FILES_API_KEY,req.body||{});await recordUsage(req);res.json({object:"file.operation",provider:"configured_files_provider",data:d,status:"completed",request_id:req.requestId});
+}catch(err){recordError(req,err,502);next(err)}});
+app.post("/v1/voice",authenticate,requireScope("voice"),async(req,res,next)=>{try{
+  if(!process.env.VOICE_API_URL)return res.status(503).json({error:{type:"provider_not_configured",message:"VOICE_API_URL is not configured."},request_id:req.requestId});
+  const d=await genericProviderPost(process.env.VOICE_API_URL,process.env.VOICE_API_KEY,req.body||{});await recordUsage(req);res.json({object:"voice.operation",provider:"configured_voice_provider",data:d,status:"completed",request_id:req.requestId});
+}catch(err){recordError(req,err,502);next(err)}});
 
 app.post("/v1/chat",authenticate,requireScope("chat"),async(req,res,next)=>{try{const messages=Array.isArray(req.body?.messages)?req.body.messages:[];if(!messages.length)return res.status(400).json({error:{type:"invalid_request_error",message:"messages is required."},request_id:req.requestId});const model=String(req.body?.model||GEMINI_MODEL);const result=await callGemini({messages,model,generationConfig:req.body?.generationConfig});await recordUsage(req);res.json({id:"chat_"+crypto.randomBytes(10).toString("hex"),object:"chat.completion",created:Math.floor(Date.now()/1000),provider:"gemini",model:result.model||model,choices:[{index:0,message:{role:"assistant",content:result.text},finish_reason:result.raw?.candidates?.[0]?.finishReason||"STOP"}],usage:result.raw?.usageMetadata||null,status:"completed",request_id:req.requestId})}catch(err){if(err.code==="invalid_request")return res.status(400).json({error:{type:"invalid_request_error",message:err.message},request_id:req.requestId});if(err.code==="provider_not_configured")return res.status(503).json({error:{type:"provider_not_configured",message:"Gemini provider is not configured on BHAI API."},request_id:req.requestId});if(err.code==="provider_error")return res.status(502).json({error:{type:"provider_error",provider:err.provider,message:err.message},request_id:req.requestId});next(err)}});
 app.use((_req,res)=>res.status(404).json({error:{type:"not_found",message:"Route not found."}}));
-app.use((err,req,res,_next)=>{console.error("BHAI API error:",err);res.status(500).json({error:{type:"internal_error",message:"Internal server error."},request_id:req.requestId})});
+app.use((err,req,res,_next)=>{recordError(req,err,500);console.error("BHAI API error:",err);res.status(500).json({error:{type:"internal_error",message:"Internal server error."},request_id:req.requestId})});
 process.on("unhandledRejection",err=>console.error("Unhandled rejection:",err));process.on("uncaughtException",err=>console.error("Uncaught exception:",err));
 const server=app.listen(PORT,HOST,()=>console.log(`BHAI API listening on http://${HOST}:${PORT}`));server.on("error",err=>console.error("HTTP server failed to start:",err));
 if(process.env.BHAI_BOOTSTRAP_API_KEY)putMemoryKey(process.env.BHAI_BOOTSTRAP_API_KEY,"BHAI Owner Key",["*"],"bootstrap");
