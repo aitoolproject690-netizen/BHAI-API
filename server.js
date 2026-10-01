@@ -143,7 +143,7 @@ app.post("/v1/image",authenticate,requireScope("image"),async(req,res,next)=>{tr
   const external=[];
   if(process.env.IMAGE_API_URL)external.push({url:process.env.IMAGE_API_URL,key:process.env.IMAGE_API_KEY||"",name:"configured_image_provider"});
   if(process.env.PIXAZO_API_KEY){
-    const pixazoUrls=PIXAZO_IMAGE_URLS.length?PIXAZO_IMAGE_URLS:["https://gateway.pixazo.ai/flux/text-to-image","https://gateway.pixazo.ai/muse-image/v1/text-to-image"];
+    const pixazoUrls=PIXAZO_IMAGE_URLS.length?PIXAZO_IMAGE_URLS:["https://gateway.pixazo.ai/flux/text-to-image","https://gateway.pixazo.ai/getImage/v1/getSDXLImage"];
     for(const [i,url] of pixazoUrls.entries()) external.push({url,key:"",pixazo_key:process.env.PIXAZO_API_KEY,name:"pixazo_"+(i+1),pixazo:true});
   }
   external.push(...providerList("image"));
@@ -158,6 +158,10 @@ app.post("/v1/image",authenticate,requireScope("image"),async(req,res,next)=>{tr
     }catch(err){
       lastError=err;
       attempts.push({provider:p.name,status:err?.status||null,message:String(err?.message||err)});
+      // Try the next configured/provider endpoint on auth/model-access errors too;
+      // a 401/403 can mean this particular model is unavailable while another
+      // Pixazo free model is still usable. Never retry the same endpoint in a loop.
+      if(err?.status===401||err?.status===403)continue;
       if(!providerFailedStatus(err.status))break;
     }
   }
