@@ -27,6 +27,11 @@ document.addEventListener("DOMContentLoaded",function(){
   document.getElementById("sendChat")?.addEventListener("click",chat);
   document.getElementById("clearChat")?.addEventListener("click",clearChat);
   document.getElementById("copyKeys")?.addEventListener("click",function(){copyText("POST /v1/keys")});
+document.getElementById("createKey")?.addEventListener("click",createKey);
+document.getElementById("listKeys")?.addEventListener("click",listKeys);
   document.getElementById("refreshHealth")?.addEventListener("click",loadHealth);
   loadHealth();
 });
+async function adminRequest(path,options={}){const key=document.getElementById("adminKey").value.trim();if(!key)throw new Error("Admin key required.");options.headers={...(options.headers||{}),"x-bhai-admin-key":key,"Content-Type":"application/json"};const r=await fetch(path,options);const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d?.error?.message||("HTTP "+r.status));return d}
+async function createKey(){const out=document.getElementById("keyout");out.textContent="Creating…";try{const scopes=[...document.querySelectorAll(".scope:checked")].map(x=>x.value);const d=await adminRequest("/v1/keys",{method:"POST",body:JSON.stringify({name:document.getElementById("keyName").value.trim()||"My App",scopes})});out.textContent=JSON.stringify(d,null,2)}catch(e){out.textContent="Create failed: "+e.message}}
+async function listKeys(){const out=document.getElementById("keyout");out.textContent="Loading…";try{const d=await adminRequest("/v1/keys");out.textContent=JSON.stringify(d,null,2)}catch(e){out.textContent="List failed: "+e.message}}
