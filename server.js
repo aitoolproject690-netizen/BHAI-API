@@ -11,6 +11,7 @@ const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const HOST = "0.0.0.0";
 const PREFIX = process.env.BHAI_API_KEY_PREFIX || "bhai_live_";
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
 const pool = process.env.DATABASE_URL
   ? new Pool({
       connectionString: process.env.DATABASE_URL,
@@ -148,6 +149,83 @@ async function recordUsage(req) {
   }
 }
 
+function normalizeGeminiContents(messages) {
+  return messages
+    .filter((m) => m && m.role !== "system" && typeof m.content === "string")
+    .map((m) => ({
+      role: m.role === "assistant" ? "model" : "user",
+      parts: [{ text: m.content }]
+    }));
+}
+
+function getSystemInstruction(messages) {
+  const system = messages
+    .filter((m) => m?.role === "system" && typeof m.content === "string")
+    .map((m) => m.content.trim())
+    .filter(Boolean)
+    .join("\n\n");
+  return system || null;
+}
+
+async function callGemini({ messages, model, generationConfig }) {
+  if (!process.env.GEMINI_API_KEY) {
+    const err = new Error("GEMINI_API_KEY is not configured.");
+    err.code = "provider_not_configured";
+    throw err;
+  }
+
+  const contents = normalizeGeminiContents(messages);
+  if (!contents.length) {
+    const err = new Error("No usable user/assistant messages were provided.");
+    err.code = "invalid_request";
+    throw err;
+  }
+
+  const body = { contents };
+  const systemInstruction = getSystemInstruction(messages);
+  if (systemInstruction) {
+    body.systemInstruction = { parts: [{ text: systemInstruction }] };
+  }
+  if (generationConfig && typeof generationConfig === "object") {
+    body.generationConfig = generationConfig;
+  }
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": process.env.GEMINI_API_KEY
+      },
+      body: JSON.stringify(body)
+    }
+  );
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const providerMessage =
+      data?.error?.message || `Gemini returned HTTP ${response.status}`;
+    const err = new Error(providerMessage);
+    err.code = "provider_error";
+    err.status = response.status;
+    err.provider = "gemini";
+    throw err;
+  }
+
+  const text = (data?.candidates || [])
+    .flatMap((candidate) => candidate?.content?.parts || [])
+    .map((part) => part?.text)
+    .filter(Boolean)
+    .join("\n");
+
+  return {
+    text,
+    raw: data
+  };
+}
+
 app.get("/", (_req, res) => {
   res.json({
     ok: true,
@@ -169,6 +247,7 @@ app.get("/v1/health", (_req, res) => {
     service: "BHAI API",
     api_version: "v1",
     database: Boolean(pool),
+    gemini_configured: Boolean(process.env.GEMINI_API_KEY),
     timestamp: new Date().toISOString()
   });
 });
@@ -211,18 +290,53 @@ app.post("/v1/chat", authenticate, requireScope("chat"), async (req, res, next) 
       });
     }
 
+    const model = String(req.body?.model || GEMINI_MODEL);
+    const result = await callGemini({
+      messages,
+      model,
+      generationConfig: req.body?.generationConfig
+    });
+
     res.json({
       id: "chat_" + crypto.randomBytes(10).toString("hex"),
       object: "chat.completion",
       created: Math.floor(Date.now() / 1000),
-      provider: "router",
-      model: req.body?.model || "auto",
-      choices: [],
-      status: "provider_not_configured",
-      message: "BHAI API gateway is ready. Connect a provider in the next step.",
+      provider: "gemini",
+      model,
+      choices: [
+        {
+          index: 0,
+          message: { role: "assistant", content: result.text },
+          finish_reason: result.raw?.candidates?.[0]?.finishReason || "STOP"
+        }
+      ],
+      usage: result.raw?.usageMetadata || null,
+      status: "completed",
       request_id: req.requestId
     });
   } catch (err) {
+    if (err.code === "invalid_request") {
+      return res.status(400).json({
+        error: { type: "invalid_request_error", message: err.message },
+        request_id: req.requestId
+      });
+    }
+    if (err.code === "provider_not_configured") {
+      return res.status(503).json({
+        error: { type: "provider_not_configured", message: "Gemini provider is not configured on BHAI API." },
+        request_id: req.requestId
+      });
+    }
+    if (err.code === "provider_error") {
+      return res.status(502).json({
+        error: {
+          type: "provider_error",
+          provider: err.provider,
+          message: err.message
+        },
+        request_id: req.requestId
+      });
+    }
     next(err);
   }
 });
@@ -247,8 +361,6 @@ server.on("error", (err) => {
   process.exit(1);
 });
 
-// Never block the web server from starting because the database is unavailable.
-// DB initialization will succeed later once DATABASE_URL is configured/reachable.
 initDb()
   .then(() => console.log("BHAI API database initialization complete"))
   .catch((err) => console.error("Database initialization deferred:", err.message));
