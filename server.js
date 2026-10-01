@@ -9,9 +9,14 @@ const { Pool } = pg;
 const app = express();
 
 const PORT = Number(process.env.PORT || 3000);
+const HOST = "0.0.0.0";
 const PREFIX = process.env.BHAI_API_KEY_PREFIX || "bhai_live_";
 const pool = process.env.DATABASE_URL
-  ? new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } })
+  ? new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false },
+      connectionTimeoutMillis: 5000,
+    })
   : null;
 
 app.disable("x-powered-by");
@@ -104,9 +109,7 @@ async function authenticate(req, res, next) {
       [keyHash]
     );
     record = result.rows[0];
-    if (record) {
-      record.scopes = Array.isArray(record.scopes) ? record.scopes : [];
-    }
+    if (record) record.scopes = Array.isArray(record.scopes) ? record.scopes : [];
   } else {
     record = memoryKeys.get(keyHash);
   }
@@ -145,8 +148,19 @@ async function recordUsage(req) {
   }
 }
 
+app.get("/", (_req, res) => {
+  res.json({
+    ok: true,
+    service: "BHAI API",
+    version: "1.0.0",
+    status: "online",
+    health: "/health",
+    api: "/v1"
+  });
+});
+
 app.get("/health", (_req, res) => {
-  res.json({ ok: true, service: "BHAI API", version: "1.0.0" });
+  res.status(200).json({ ok: true, service: "BHAI API", version: "1.0.0" });
 });
 
 app.get("/v1/health", (_req, res) => {
@@ -159,65 +173,82 @@ app.get("/v1/health", (_req, res) => {
   });
 });
 
-app.post("/v1/keys", async (req, res) => {
-  const admin = req.headers["x-bhai-admin-key"];
-  if (!process.env.BHAI_ADMIN_KEY || admin !== process.env.BHAI_ADMIN_KEY) {
-    return res.status(401).json({
-      error: { type: "authentication_error", message: "Admin key required." },
-      request_id: req.requestId
+app.post("/v1/keys", async (req, res, next) => {
+  try {
+    const admin = req.headers["x-bhai-admin-key"];
+    if (!process.env.BHAI_ADMIN_KEY || admin !== process.env.BHAI_ADMIN_KEY) {
+      return res.status(401).json({
+        error: { type: "authentication_error", message: "Admin key required." },
+        request_id: req.requestId
+      });
+    }
+
+    const name = String(req.body?.name || "Developer Key").slice(0, 120);
+    const scopes = Array.isArray(req.body?.scopes) ? req.body.scopes : ["chat"];
+    const created = await saveKey({ name, scopes });
+
+    res.status(201).json({
+      object: "api_key",
+      key: created.key,
+      name: created.name,
+      scopes: created.scopes,
+      created_at: new Date().toISOString()
     });
+  } catch (err) {
+    next(err);
   }
-
-  const name = String(req.body?.name || "Developer Key").slice(0, 120);
-  const scopes = Array.isArray(req.body?.scopes) ? req.body.scopes : ["chat"];
-  const created = await saveKey({ name, scopes });
-
-  res.status(201).json({
-    object: "api_key",
-    key: created.key,
-    name: created.name,
-    scopes: created.scopes,
-    created_at: new Date().toISOString()
-  });
 });
 
-app.post("/v1/chat", authenticate, requireScope("chat"), async (req, res) => {
-  await recordUsage(req);
+app.post("/v1/chat", authenticate, requireScope("chat"), async (req, res, next) => {
+  try {
+    await recordUsage(req);
 
-  const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
-  if (!messages.length) {
-    return res.status(400).json({
-      error: { type: "invalid_request_error", message: "messages is required." },
+    const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
+    if (!messages.length) {
+      return res.status(400).json({
+        error: { type: "invalid_request_error", message: "messages is required." },
+        request_id: req.requestId
+      });
+    }
+
+    res.json({
+      id: "chat_" + crypto.randomBytes(10).toString("hex"),
+      object: "chat.completion",
+      created: Math.floor(Date.now() / 1000),
+      provider: "router",
+      model: req.body?.model || "auto",
+      choices: [],
+      status: "provider_not_configured",
+      message: "BHAI API gateway is ready. Connect a provider in the next step.",
       request_id: req.requestId
     });
+  } catch (err) {
+    next(err);
   }
-
-  // Provider routing is intentionally isolated here. Real providers will be
-  // added behind this boundary so BHAI API remains provider-independent.
-  res.json({
-    id: "chat_" + crypto.randomBytes(10).toString("hex"),
-    object: "chat.completion",
-    created: Math.floor(Date.now() / 1000),
-    provider: "router",
-    model: req.body?.model || "auto",
-    choices: [],
-    status: "provider_not_configured",
-    message: "BHAI API gateway is ready. Connect a provider in the next step.",
-    request_id: req.requestId
-  });
 });
 
 app.use((err, req, res, _next) => {
-  console.error(err);
+  console.error("BHAI API error:", err);
   res.status(500).json({
     error: { type: "internal_error", message: "Internal server error." },
     request_id: req.requestId
   });
 });
 
+process.on("unhandledRejection", (err) => console.error("Unhandled rejection:", err));
+process.on("uncaughtException", (err) => console.error("Uncaught exception:", err));
+
+const server = app.listen(PORT, HOST, () => {
+  console.log(`BHAI API listening on http://${HOST}:${PORT}`);
+});
+
+server.on("error", (err) => {
+  console.error("HTTP server failed to start:", err);
+  process.exit(1);
+});
+
+// Never block the web server from starting because the database is unavailable.
+// DB initialization will succeed later once DATABASE_URL is configured/reachable.
 initDb()
-  .then(() => app.listen(PORT, () => console.log(`BHAI API listening on ${PORT}`)))
-  .catch((err) => {
-    console.error("Database initialization failed:", err);
-    process.exit(1);
-  });
+  .then(() => console.log("BHAI API database initialization complete"))
+  .catch((err) => console.error("Database initialization deferred:", err.message));
