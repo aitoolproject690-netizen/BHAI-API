@@ -114,7 +114,7 @@ async function genericProviderPost(url,key,body,extraHeaders={}){
   if(!r.ok){const e=new Error(d?.error?.message||d?.message||("Provider HTTP "+r.status));e.code="provider_error";e.status=r.status;throw e}
   return d;
 }
-function providerFailedStatus(status){return [400,401,402,403,408,409,425,429,500,502,503,504].includes(Number(status))}
+function providerFailedStatus(status){return [400,401,402,403,404,408,409,425,429,500,502,503,504].includes(Number(status))}
 function providerList(kind){
   const isImage=kind==="image";
   const urls=isImage?IMAGE_PROVIDER_URLS:VIDEO_PROVIDER_URLS;
@@ -142,7 +142,8 @@ app.post("/v1/image",authenticate,requireScope("image"),async(req,res,next)=>{tr
   const external=[];
   if(process.env.IMAGE_API_URL)external.push({url:process.env.IMAGE_API_URL,key:process.env.IMAGE_API_KEY||"",name:"configured_image_provider"});
   if(process.env.PIXAZO_API_KEY){
-    external.push({url:"https://gateway.pixazo.ai/flux/text-to-image",key:"",pixazo_key:process.env.PIXAZO_API_KEY,name:"pixazo_flux_schnell",pixazo:true});
+    external.push({url:"https://gateway.pixazo.ai/flux/text-to-image",key:"",pixazo_key:process.env.PIXAZO_API_KEY,name:"pixazo_flux_free",pixazo:true});
+    external.push({url:"https://gateway.pixazo.ai/flux-1-schnell/v1/getData",key:"",pixazo_key:process.env.PIXAZO_API_KEY,name:"pixazo_flux_schnell_legacy",pixazo_legacy:true});
     external.push({url:"https://gateway.pixazo.ai/sd3-5/v1/r-sd-3-5-large",key:"",pixazo_key:process.env.PIXAZO_API_KEY,name:"pixazo_sd3_5",pixazo_sd:true});
   }
   external.push(...providerList("image"));
@@ -150,8 +151,8 @@ app.post("/v1/image",authenticate,requireScope("image"),async(req,res,next)=>{tr
   const attempts=[];
   for(const p of external){
     try{
-      const body=p.pixazo_sd?{prompt,aspect_ratio:"1:1",output_format:"png",output_quality:90}:(p.pixazo?{prompt}:{prompt,model:String(req.body?.model||process.env.IMAGE_MODEL||"image"),size});
-      const headers=(p.pixazo||p.pixazo_sd)?{"Ocp-Apim-Subscription-Key":p.pixazo_key,"Cache-Control":"no-cache"}:{};
+      const body=p.pixazo_sd?{prompt,aspect_ratio:"1:1",output_format:"png",output_quality:90}:(p.pixazo_legacy?{prompt,num_steps:4,height:1024,width:1024}:(p.pixazo?{prompt}:{prompt,model:String(req.body?.model||process.env.IMAGE_MODEL||"image"),size}));
+      const headers=(p.pixazo||p.pixazo_sd||p.pixazo_legacy)?{"Ocp-Apim-Subscription-Key":p.pixazo_key,"Cache-Control":"no-cache"}:{};
       const d=await genericProviderPost(p.url,p.key,body,headers);
       await recordUsage(req);return res.json({object:"image.generation",provider:p.name,data:d,status:d?.status||"completed",request_id:req.requestId});
     }catch(err){
