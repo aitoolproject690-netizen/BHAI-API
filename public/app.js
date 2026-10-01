@@ -36,7 +36,7 @@ async function verifyKey(raw){
     }
   }catch(e){out.textContent="Verification failed: "+e.message}
 }
-function clearChat(){document.getElementById("chatout").textContent="Response will appear here…"}
+function clearChat(){document.getElementById("chatout").textContent="Response will appear here…";const key=document.getElementById("key");if(key)key.value=""}
 async function copyText(t){try{await navigator.clipboard.writeText(t);alert("Copied")}catch(e){prompt("Copy this value:",t)}}
 function renderKeyHistory(items){
   const box=document.getElementById("keyhistory"); if(!box)return;
@@ -70,6 +70,8 @@ async function listKeys(){
 }
 async function revokeKey(id){if(!confirm("Block/revoke this API key? It will stop working."))return;try{await adminRequest("/v1/keys/"+encodeURIComponent(id),{method:"POST"});await listKeys()}catch(e){alert("Revoke failed: "+e.message)}}
 document.addEventListener("DOMContentLoaded",function(){
+  const key=document.getElementById("key"); if(key) key.value="";
+  const admin=document.getElementById("adminKey"); if(admin) admin.value="";
   document.getElementById("sendChat")?.addEventListener("click",chat);
   document.getElementById("clearChat")?.addEventListener("click",clearChat);
   document.getElementById("createKey")?.addEventListener("click",createKey);
