@@ -14,7 +14,7 @@ const HOST = "0.0.0.0";
 const PREFIX = process.env.BHAI_API_KEY_PREFIX || "bhai_live_";
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
 const GEMINI_FALLBACK_MODELS = String(process.env.GEMINI_FALLBACK_MODELS || "gemini-3.7-flash,gemini-3.5-flash-lite").split(",").map(x=>x.trim()).filter(Boolean);
-const IMAGE_FALLBACK_MODELS = String(process.env.IMAGE_FALLBACK_MODELS || "").split(",").map(x=>x.trim()).filter(Boolean);
+const IMAGE_FALLBACK_MODELS = String(process.env.IMAGE_FALLBACK_MODELS || "gemini-3.1-flash-image").split(",").map(x=>x.trim()).filter(Boolean).map(x=>x==="gemini-image"?"gemini-3.1-flash-image":x);
 const IMAGE_PROVIDER_URLS = String(process.env.IMAGE_PROVIDER_URLS || "").split(",").map(x=>x.trim()).filter(Boolean);
 const VIDEO_PROVIDER_URLS = String(process.env.VIDEO_PROVIDER_URLS || "").split(",").map(x=>x.trim()).filter(Boolean);
 const IMAGE_PROVIDER_KEYS = String(process.env.IMAGE_PROVIDER_KEYS || "").split(",").map(x=>x.trim());
@@ -141,12 +141,12 @@ app.post("/v1/image",authenticate,requireScope("image"),async(req,res,next)=>{tr
   const size=String(req.body?.size||"1024x1024");
   const external=[];
   if(process.env.IMAGE_API_URL)external.push({url:process.env.IMAGE_API_URL,key:process.env.IMAGE_API_KEY||"",name:"configured_image_provider"});
-  if(process.env.PIXAZO_API_KEY)external.push({url:"https://gateway.pixazo.ai/flux-1-schnell/v1/getData",key:process.env.PIXAZO_API_KEY,name:"pixazo_flux_schnell",pixazo:true});
+  if(process.env.PIXAZO_API_KEY)external.push({url:"https://gateway.pixazo.ai/flux/text-to-image",key:process.env.PIXAZO_API_KEY,name:"pixazo_flux_schnell",pixazo:true});
   external.push(...providerList("image"));
   let lastError=null;
   for(const p of external){
     try{
-      const body=p.pixazo?{prompt,num_steps:4,width:1024,height:1024}:{prompt,model:String(req.body?.model||process.env.IMAGE_MODEL||"image"),size};
+      const body=p.pixazo?{prompt}:{prompt,model:String(req.body?.model||process.env.IMAGE_MODEL||"image"),size};
       const headers=p.pixazo?{"Ocp-Apim-Subscription-Key":p.key,"Cache-Control":"no-cache"}:{};
       const d=await genericProviderPost(p.url,p.key,body,headers);
       await recordUsage(req);return res.json({object:"image.generation",provider:p.name,data:d,status:"completed",request_id:req.requestId});
@@ -154,7 +154,7 @@ app.post("/v1/image",authenticate,requireScope("image"),async(req,res,next)=>{tr
   }
   if(process.env.GEMINI_API_KEY){
     try{
-      const result=await generateGeminiImage({prompt,model:String(req.body?.model||process.env.GEMINI_IMAGE_MODEL||IMAGE_FALLBACK_MODELS[0]||"gemini-image"),size});
+      const result=await generateGeminiImage({prompt,model:String(req.body?.model||process.env.GEMINI_IMAGE_MODEL||IMAGE_FALLBACK_MODELS[0]||"gemini-3.1-flash-image").replace(/^gemini-image$/,"gemini-3.1-flash-image"),size});
       await recordUsage(req);return res.json({object:"image.generation",provider:result.provider,model:result.model,data:result.images,text:result.text||null,status:"completed",request_id:req.requestId});
     }catch(err){lastError=err;}
   }
@@ -166,7 +166,7 @@ app.post("/v1/video",authenticate,requireScope("video"),async(req,res,next)=>{tr
   const duration=Math.min(20,Math.max(1,Number(req.body?.duration||5)));
   const providers=[];
   if(process.env.VIDEO_API_URL)providers.push({url:process.env.VIDEO_API_URL,key:process.env.VIDEO_API_KEY||"",name:"configured_video_provider"});
-  if(process.env.PIXAZO_API_KEY)providers.push({url:"https://gateway.pixazo.ai/ltx-video/v1/text-to-video",key:process.env.PIXAZO_API_KEY,name:"pixazo_ltx",pixazo:true});
+  if(process.env.PIXAZO_API_KEY)providers.push({url:"https://gateway.pixazo.ai/ltx/text-to-video",key:process.env.PIXAZO_API_KEY,name:"pixazo_ltx",pixazo:true});
   providers.push(...providerList("video"));
   let lastError=null;
   for(const p of providers){
