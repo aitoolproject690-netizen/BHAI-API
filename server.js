@@ -150,7 +150,7 @@ app.post("/v1/image",authenticate,requireScope("image"),async(req,res,next)=>{tr
   const attempts=[];
   for(const p of external){
     try{
-      const body=p.pixazo_sd?{prompt,aspect_ratio:"1:1",output_format:"png",output_quality:90}:{p.pixazo?{prompt}:{prompt,model:String(req.body?.model||process.env.IMAGE_MODEL||"image"),size};
+      const body=p.pixazo_sd?{prompt,aspect_ratio:"1:1",output_format:"png",output_quality:90}:(p.pixazo?{prompt}:{prompt,model:String(req.body?.model||process.env.IMAGE_MODEL||"image"),size});
       const headers=(p.pixazo||p.pixazo_sd)?{"Ocp-Apim-Subscription-Key":p.pixazo_key,"Cache-Control":"no-cache"}:{};
       const d=await genericProviderPost(p.url,p.key,body,headers);
       await recordUsage(req);return res.json({object:"image.generation",provider:p.name,data:d,status:d?.status||"completed",request_id:req.requestId});
