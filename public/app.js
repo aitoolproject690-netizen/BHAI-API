@@ -38,16 +38,36 @@ async function verifyKey(raw){
 }
 function clearChat(){document.getElementById("chatout").textContent="Response will appear here…";const key=document.getElementById("key");if(key)key.value=""}
 async function copyText(t){
-  const value=String(t??"");
+  const value=String(t??"").trim();
+  if(!value)return false;
+  const input=document.getElementById("newApiKeyValue");
+  if(input && input.value.trim()===value){
+    input.focus();
+    input.select();
+    input.setSelectionRange(0,input.value.length);
+  }
   try{
-    await navigator.clipboard.writeText(value);
-    alert("✅ Full value copied");
+    if(navigator.clipboard && window.isSecureContext){
+      await navigator.clipboard.writeText(value);
+    }else{
+      const ta=document.createElement("textarea");
+      ta.value=value;ta.setAttribute("readonly","");
+      ta.style.position="fixed";ta.style.left="-9999px";
+      document.body.appendChild(ta);ta.focus();ta.select();ta.setSelectionRange(0,value.length);
+      const ok=document.execCommand("copy");
+      ta.remove();
+      if(!ok)throw new Error("copy command failed");
+    }
+    alert("✅ Full API key copied");
+    return true;
   }catch(e){
-    const ta=document.createElement("textarea");
-    ta.value=value;ta.style.position="fixed";ta.style.opacity="0";
-    document.body.appendChild(ta);ta.focus();ta.select();
-    try{document.execCommand("copy");alert("✅ Full value copied")}catch(_){prompt("Copy this full value:",value)}
-    ta.remove();
+    if(input && input.value.trim()===value){
+      input.focus();input.select();input.setSelectionRange(0,value.length);
+      alert("Key selected — tap Copy from your phone's menu.");
+      return false;
+    }
+    prompt("Copy this FULL API key:",value);
+    return false;
   }
 }
 function renderKeyHistory(items){
@@ -55,9 +75,8 @@ function renderKeyHistory(items){
   if(!items.length){box.innerHTML='<div class="notice">No developer keys yet.</div>';return}
   box.innerHTML=items.map(k=>{
     const revoked=k.status!=="active";
-    return '<div class="keyrow"><div><b>'+escapeHtml(k.name||"Unnamed key")+'</b><div class="small">'+escapeHtml(k.key_prefix||"")+" • "+escapeHtml(k.status||"unknown")+" • usage "+Number(k.usage_count||0)+'</div></div><button class="secondary copy-prefix" data-prefix="'+escapeAttr(k.key_prefix||"")+'">Copy prefix</button><button class="secondary revoke-key" data-id="'+escapeAttr(k.id)+'" '+(revoked?'disabled':'')+'>'+ (revoked?'Revoked':'Block / Revoke')+'</button></div>';
+    return '<div class="keyrow"><div><b>'+escapeHtml(k.name||"Unnamed key")+'</b><div class="small">'+escapeHtml(k.key_prefix||"")+" • "+escapeHtml(k.status||"unknown")+" • usage "+Number(k.usage_count||0)+'</div></div><button class="secondary revoke-key" data-id="'+escapeAttr(k.id)+'" '+(revoked?'disabled':'')+'>'+ (revoked?'Revoked':'Block / Revoke')+'</button></div>';
   }).join("");
-  box.querySelectorAll(".copy-prefix").forEach(b=>b.addEventListener("click",()=>copyText(b.dataset.prefix)));
   box.querySelectorAll(".revoke-key").forEach(b=>b.addEventListener("click",()=>revokeKey(b.dataset.id)));
 }
 function escapeHtml(s){return String(s).replace(/[&<>'"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]))}
@@ -69,7 +88,7 @@ async function createKey(){
     const scopes=[...document.querySelectorAll(".scope:checked")].map(x=>x.value);
     const d=await adminRequest("/v1/keys",{method:"POST",body:JSON.stringify({name:document.getElementById("keyName").value.trim()||"My App",scopes})});
     out.innerHTML='<b>New API key created — copy it now. It is shown only once.</b><label for="newApiKeyValue">Full API Key</label><input id="newApiKeyValue" class="full-key" type="text" readonly value="'+escapeAttr(d.key)+'" spellcheck="false" autocapitalize="off" autocomplete="off"><button class="primary" id="copyNewKey" type="button">📋 Copy Full API Key</button> <button class="secondary" id="verifyNewKey" type="button">✅ Test This Key</button><pre>'+escapeHtml(JSON.stringify({...d,key:"(shown in the full-key field above)"},null,2))+'</pre>';
-    document.getElementById("copyNewKey").addEventListener("click",()=>copyText(document.getElementById("newApiKeyValue").value));
+    document.getElementById("copyNewKey").addEventListener("click",()=>copyText(d.key));
     document.getElementById("verifyNewKey").addEventListener("click",()=>verifyKey(d.key));
     document.getElementById("key").value=d.key;
     await listKeys();
