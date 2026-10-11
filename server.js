@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 
 const { Pool } = pg;
 const app = express();
-const PORT = Number(process.env.PORT || 3000);
+const PORT = Number(process.env.PORT || process.env.SERVER_PORT || 3000);
 const HOST = "0.0.0.0";
 const PREFIX = process.env.BHAI_API_KEY_PREFIX || "bhai_live_";
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
